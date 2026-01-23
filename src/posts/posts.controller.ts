@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Req, Get, UseInterceptors, UploadedFile, Param, Delete } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Req, Get, UseInterceptors, UploadedFile, Param, Delete, Patch } from '@nestjs/common';
 import { PostsService } from './posts.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { AuthGuard } from '@nestjs/passport';
@@ -77,11 +77,19 @@ export class PostsController {
     @Delete(':id')
     @UseGuards(AuthGuard('jwt'))
     delete(@Req() req: any, @Param('id') id: string) {
-        // TODO: ideally check for admin role here or in a guard
-        // For now, we will assume the frontend handles visibility, 
-        // and we can add a check if needed, e.g. req.user.role === 'ADMIN'
-        // But the user object from passport-jwt might need to include role.
-        return this.postsService.delete(id);
+        return this.postsService.delete(req.user.id, id);
+    }
+
+    @Patch(':id')
+    @UseGuards(AuthGuard('jwt'))
+    update(@Req() req: any, @Param('id') id: string, @Body('content') content: string) {
+        return this.postsService.update(req.user.id, id, content);
+    }
+
+    @Post(':id/report')
+    @UseGuards(AuthGuard('jwt'))
+    report(@Req() req: any, @Param('id') id: string) {
+        return this.postsService.reportPost(req.user.id, id);
     }
 
     @Post(':id/bookmark')

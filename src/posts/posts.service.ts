@@ -29,8 +29,28 @@ export class PostsService {
     }
 
     async findAll(userId?: string) {
+        // Build exclusion list if user is logged in
+        const whereClause: any = { isDeleted: false };
+
+        if (userId) {
+            const blocked = await this.prisma.block.findMany({
+                where: { blockerId: userId },
+                select: { blockedId: true }
+            });
+            const blockedIds = blocked.map(b => b.blockedId);
+
+            const reported = await this.prisma.interaction.findMany({
+                where: { userId, type: 'REPORT' },
+                select: { postId: true }
+            });
+            const reportedPostIds = reported.map(r => r.postId);
+
+            whereClause.userId = { notIn: blockedIds };
+            whereClause.id = { notIn: reportedPostIds };
+        }
+
         const posts = await this.prisma.post.findMany({
-            where: { isDeleted: false },
+            where: whereClause,
             orderBy: { createdAt: 'desc' },
             include: {
                 user: true,

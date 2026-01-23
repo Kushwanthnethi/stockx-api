@@ -151,6 +151,16 @@ model PostStock {
 enum InteractionType {
   LIKE
   BOOKMARK
+  REPORT
+}
+
+model Block {
+  blockerId String @map("blocker_id")
+  blockedId String @map("blocked_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([blockerId, blockedId])
+  @@map("blocks")
 }
 
 model Interaction {

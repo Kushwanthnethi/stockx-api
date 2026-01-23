@@ -106,6 +106,29 @@ export class UsersService {
     });
   }
 
+  async blockUser(blockerId: string, blockedId: string) {
+    if (blockerId === blockedId) throw new Error("Cannot block yourself");
+
+    // Also force unfollow if blocking
+    await this.unfollowUser(blockerId, blockedId);
+    await this.unfollowUser(blockedId, blockerId);
+
+    // Upsert block
+    return this.prisma.block.upsert({
+      where: {
+        blockerId_blockedId: {
+          blockerId,
+          blockedId
+        }
+      },
+      create: {
+        blockerId,
+        blockedId
+      },
+      update: {}
+    });
+  }
+
   // Check if followerId follows followeeId
   async isFollowing(followerId: string, followeeId: string) {
     const follow = await this.prisma.follow.findUnique({

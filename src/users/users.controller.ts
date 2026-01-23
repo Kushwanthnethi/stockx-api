@@ -33,6 +33,12 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post(':id/block')
+  async blockUser(@Request() req: any, @Param('id') id: string) {
+    return this.usersService.blockUser(req.user.id, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post(':id/unfollow')
   async unfollowUser(@Request() req: any, @Param('id') id: string) {
     return this.usersService.unfollowUser(req.user.id, id);
