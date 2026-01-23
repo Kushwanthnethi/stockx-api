@@ -238,11 +238,53 @@ export class PostsService {
         });
 
         return reshare;
-    } async delete(id: string) {
+    }
+
+    async delete(userId: string, id: string) {
+        const post = await this.prisma.post.findUnique({ where: { id } });
+        if (!post) throw new Error('Post not found');
+        if (post.userId !== userId) throw new Error('Unauthorized'); // Basic ownership check
+
         return this.prisma.post.update({
             where: { id },
             data: { isDeleted: true },
         });
+    }
+
+    async update(userId: string, id: string, content: string) {
+        const post = await this.prisma.post.findUnique({ where: { id } });
+        if (!post) throw new Error('Post not found');
+        if (post.userId !== userId) throw new Error('Unauthorized');
+
+        return this.prisma.post.update({
+            where: { id },
+            data: { content, updatedAt: new Date() },
+        });
+    }
+
+    async reportPost(userId: string, postId: string) {
+        // Create interaction with type REPORT
+        // We use upsert to prevent double reporting crashing
+        const existingReport = await this.prisma.interaction.findUnique({
+            where: {
+                userId_postId_type: {
+                    userId,
+                    postId,
+                    type: 'REPORT',
+                },
+            },
+        });
+
+        if (existingReport) return { reported: true };
+
+        await this.prisma.interaction.create({
+            data: {
+                userId,
+                postId,
+                type: 'REPORT',
+            },
+        });
+        return { reported: true };
     }
 
     async toggleBookmark(userId: string, postId: string) {
