@@ -14,7 +14,7 @@ export class PostsController {
     @Post()
     @UseGuards(AuthGuard('jwt'))
     create(@Req() req: any, @Body() createPostDto: CreatePostDto) {
-        return this.postsService.create(req.user.userId, createPostDto);
+        return this.postsService.create(req.user.id, createPostDto);
     }
 
     @Post('upload')
@@ -38,24 +38,24 @@ export class PostsController {
     @UseGuards(OptionalJwtAuthGuard)
     findAll(@Req() req: any) {
         // req.user will be populated if token is valid, else null
-        return this.postsService.findAll(req.user?.userId);
+        return this.postsService.findAll(req.user?.id);
     }
 
     @Get('symbol/:symbol')
     findBySymbol(@Param('symbol') symbol: string, @Req() req: any) {
-        return this.postsService.findBySymbol(symbol, req.user?.userId);
+        return this.postsService.findBySymbol(symbol, req.user?.id);
     }
 
     @Post(':id/like')
     @UseGuards(AuthGuard('jwt'))
     toggleLike(@Req() req: any, @Param('id') id: string) {
-        return this.postsService.toggleLike(req.user.userId, id);
+        return this.postsService.toggleLike(req.user.id, id);
     }
 
     @Post(':id/comments')
     @UseGuards(AuthGuard('jwt'))
     createComment(@Req() req: any, @Param('id') id: string, @Body() createCommentDto: { content: string }) { // Using inline DTO for simplicity or import CreateCommentDto
-        return this.postsService.createComment(req.user.userId, id, createCommentDto.content);
+        return this.postsService.createComment(req.user.id, id, createCommentDto.content);
     }
 
     @Get(':id/comments')
@@ -71,7 +71,7 @@ export class PostsController {
     @Post(':id/reshare')
     @UseGuards(AuthGuard('jwt'))
     resharePost(@Req() req: any, @Param('id') id: string) {
-        return this.postsService.resharePost(req.user.userId, id);
+        return this.postsService.resharePost(req.user.id, id);
     }
 
     @Delete(':id')
@@ -87,12 +87,12 @@ export class PostsController {
     @Post(':id/bookmark')
     @UseGuards(AuthGuard('jwt'))
     toggleBookmark(@Req() req: any, @Param('id') id: string) {
-        return this.postsService.toggleBookmark(req.user.userId, id);
+        return this.postsService.toggleBookmark(req.user.id, id);
     }
 
     @Get('user/bookmarks')
     @UseGuards(AuthGuard('jwt'))
     getBookmarks(@Req() req: any) {
-        return this.postsService.getBookmarks(req.user.userId);
+        return this.postsService.getBookmarks(req.user.id);
     }
 }
