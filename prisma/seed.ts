@@ -72,6 +72,28 @@ async function main() {
     }
     console.log('Stocks seeded.');
 
+    // Seed Indices (NIFTY 50 & SENSEX) - Critical for Home Page Ticker
+    console.log('Seeding Indices...');
+    const indices = [
+        { symbol: 'NIFTY 50', companyName: 'Nifty 50 Index', currentPrice: 24500, changePercent: 0.5, exchange: 'NSE' },
+        { symbol: 'SENSEX', companyName: 'S&P BSE SENSEX', currentPrice: 80500, changePercent: 0.6, exchange: 'BSE' }
+    ];
+    for (const index of indices) {
+        await prisma.stock.upsert({
+            where: { symbol: index.symbol },
+            update: {}, // Keep existing if there
+            create: {
+                symbol: index.symbol,
+                companyName: index.companyName,
+                exchange: index.exchange,
+                currentPrice: index.currentPrice,
+                changePercent: index.changePercent,
+                marketCap: 0,
+            },
+        });
+    }
+    console.log('Indices seeded.');
+
     console.log('Stocks seeded.');
 
     // Seed Investors (Rich Profiles)

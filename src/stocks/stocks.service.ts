@@ -830,32 +830,21 @@ export class StocksService {
     }
   }
   async getIndices() {
-    const symbols = ['^NSEI', '^BSESN'];
     try {
-      const yahooFinance = await this.getYahooClient();
+      // Use findOne to leverage DB caching + auto-update logic
+      const nifty = await this.findOne('NIFTY 50');
+      const sensex = await this.findOne('SENSEX');
 
-      const results = await Promise.all(symbols.map(async (symbol) => {
-        try {
-          const data = await yahooFinance.quoteSummary(symbol, {
-            modules: ['price']
-          }) as any;
+      const results = [nifty, sensex].filter(i => !!i);
 
-          if (!data || !data.price) return null;
-
-          return {
-            symbol: symbol === '^NSEI' ? 'NIFTY 50' : 'SENSEX',
-            price: data.price.regularMarketPrice,
-            change: data.price.regularMarketChange,
-            changePercent: (data.price.regularMarketChangePercent || 0) * 100
-          };
-
-        } catch (e) {
-          console.error(`Error fetching index ${symbol}`, e);
-          return null;
-        }
+      // Transform to match frontend expectation
+      return results.map(index => ({
+        symbol: index.symbol,
+        price: index.currentPrice,
+        // Calculate approx change value since we only store percent
+        change: index.currentPrice - (index.currentPrice / (1 + index.changePercent / 100)),
+        changePercent: index.changePercent
       }));
-
-      return results.filter(r => r !== null);
     } catch (error) {
       console.error("Failed to get indices", error);
       return [];
