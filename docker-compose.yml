@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: stockx_db
+    restart: always
+    environment:
+      POSTGRES_USER: stockx_user
+      POSTGRES_PASSWORD: stockx_password
+      POSTGRES_DB: stockx_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: stockx_redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:

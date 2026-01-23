@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://stockx_user:stockx_password@localhost:5432/stockx_db?schema=public"
+}
+
+model User {
+  id           String    @id @default(uuid())
+  handle       String    @unique
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  bio          String?
+  avatarUrl    String?   @map("avatar_url")
+  
+  posts        Post[]
+  interactions Interaction[]
+  
+  following    Follow[]  @relation("follower")
+  followers    Follow[]  @relation("followee")
+
+  @@map("users")
+}
+
+model Stock {
+  symbol      String   @id
+  companyName String   @map("company_name")
+  exchange    String
+  isin        String?
+  sector      String?
+
+  posts       PostStock[]
+
+  @@map("stocks")
+}
+
+model Post {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  content   String
+  likeCount Int      @default(0) @map("like_count")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  isDeleted Boolean  @default(false) @map("is_deleted")
+
+  user      User     @relation(fields: [userId], references: [id])
+  stocks    PostStock[]
+  interactions Interaction[]
+
+  @@map("posts")
+}
+
+model PostStock {
+  postId      String @map("post_id")
+  stockSymbol String @map("stock_symbol")
+  
+  post        Post   @relation(fields: [postId], references: [id])
+  stock       Stock  @relation(fields: [stockSymbol], references: [symbol])
+
+  @@id([postId, stockSymbol])
+  @@map("post_stocks")
+}
+
+enum InteractionType {
+  LIKE
+  BOOKMARK
+}
+
+model Interaction {
+  id        String          @id @default(uuid())
+  userId    String          @map("user_id")
+  postId    String          @map("post_id")
+  type      InteractionType
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  user      User @relation(fields: [userId], references: [id])
+  post      Post @relation(fields: [postId], references: [id])
+
+  @@unique([userId, postId, type])
+  @@map("interactions")
+}
+
+model Follow {
+  followerId String   @map("follower_id")
+  followeeId String   @map("followee_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  follower   User @relation("follower", fields: [followerId], references: [id])
+  followee   User @relation("followee", fields: [followeeId], references: [id])
+
+  @@id([followerId, followeeId])
+  @@map("follows")
+}

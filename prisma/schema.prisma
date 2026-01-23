@@ -1,0 +1,241 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  handle       String    @unique
+  email        String    @unique
+  firstName    String?   @map("first_name")
+  lastName     String?   @map("last_name")
+  passwordHash String?   @map("password_hash")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  bio          String?
+  avatarUrl    String?   @map("avatar_url")
+  
+  posts        Post[]
+  comments     Comment[]
+  interactions Interaction[]
+  
+  following    Follow[]  @relation("follower")
+  followers    Follow[]  @relation("followee")
+  
+  notificationsReceived Notification[] @relation("UserNotifications")
+  notificationsSent     Notification[] @relation("ActorNotifications")
+
+  role         Role      @default(USER)
+
+  watchlist    Watchlist[]
+  visits       UserVisit[]
+
+  @@map("users")
+}
+
+model UserVisit {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  visitDate DateTime @db.Date @map("visit_date") // Just the date part matters
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, visitDate])
+  @@map("user_visits")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model Stock {
+  symbol      String   @id
+  companyName String   @map("company_name")
+  exchange    String
+  isin        String?
+  sector      String?
+  
+  currentPrice Float?   @map("current_price")
+  changePercent Float?  @map("change_percent")
+  marketCap     Float?  @map("market_cap") 
+  peRatio       Float?  @map("pe_ratio")
+  pbRatio       Float?  @map("pb_ratio")
+  high52Week    Float?  @map("high_52_week")
+  low52Week     Float?  @map("low_52_week")
+  
+  // Extended Metrics (Screener)
+  bookValue        Float? @map("book_value")
+  dividendYield    Float? @map("dividend_yield")
+  returnOnEquity   Float? @map("return_on_equity")
+  returnOnAssets   Float? @map("return_on_assets")
+  totalDebt        Float? @map("total_debt")
+  totalRevenue     Float? @map("total_revenue")
+  profitMargins    Float? @map("profit_margins")
+  operatingMargins Float? @map("operating_margins")
+  
+  // Advanced Financials
+  description      String?
+  currentRatio     Float?  @map("current_ratio")
+  debtToEquity     Float?  @map("debt_to_equity")
+  freeCashflow     Float?  @map("free_cashflow")
+  earningsGrowth   Float?  @map("earnings_growth")
+  revenueGrowth    Float?  @map("revenue_growth")
+  ebitda           Float?
+  quickRatio       Float?  @map("quick_ratio")
+
+  lastUpdated   DateTime @default(now()) @map("last_updated")
+
+  posts       PostStock[]
+  investorStocks InvestorStock[]
+  watchedBy   Watchlist[]
+
+  @@map("stocks")
+}
+
+// ... existing Post model ...
+
+model Watchlist {
+  userId      String   @map("user_id")
+  stockSymbol String   @map("stock_symbol")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user        User     @relation(fields: [userId], references: [id])
+  stock       Stock    @relation(fields: [stockSymbol], references: [symbol])
+
+  @@id([userId, stockSymbol])
+  @@map("watchlist")
+}
+
+model Post {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  content   String
+  likeCount Int      @default(0) @map("like_count")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  imageUrl  String?  @map("image_url")
+  isDeleted Boolean  @default(false) @map("is_deleted")
+
+  user      User     @relation(fields: [userId], references: [id])
+  stocks       PostStock[]
+  interactions Interaction[]
+  comments     Comment[]
+  shareCount   Int           @default(0) @map("share_count")
+  reshareCount Int           @default(0) @map("reshare_count")
+
+  originalPostId String?     @map("original_post_id")
+  originalPost   Post?       @relation("Reshares", fields: [originalPostId], references: [id])
+  reshares       Post[]      @relation("Reshares")
+
+  notifications Notification[]
+
+  @@map("posts")
+}
+
+model PostStock {
+  postId      String @map("post_id")
+  stockSymbol String @map("stock_symbol")
+  
+  post        Post   @relation(fields: [postId], references: [id])
+  stock       Stock  @relation(fields: [stockSymbol], references: [symbol])
+
+  @@id([postId, stockSymbol])
+  @@map("post_stocks")
+}
+
+enum InteractionType {
+  LIKE
+  BOOKMARK
+}
+
+model Interaction {
+  id        String          @id @default(uuid())
+  userId    String          @map("user_id")
+  postId    String          @map("post_id")
+  type      InteractionType
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  user      User @relation(fields: [userId], references: [id])
+  post      Post @relation(fields: [postId], references: [id])
+
+  @@unique([userId, postId, type])
+  @@map("interactions")
+}
+
+model Follow {
+  followerId String   @map("follower_id")
+  followeeId String   @map("followee_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  follower   User @relation("follower", fields: [followerId], references: [id])
+  followee   User @relation("followee", fields: [followeeId], references: [id])
+
+  @@id([followerId, followeeId])
+  @@map("follows")
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  content   String
+  userId    String   @map("user_id")
+  postId    String   @map("post_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+  post Post @relation(fields: [postId], references: [id])
+
+  @@map("comments")
+}
+
+model Investor {
+  id           String          @id @default(uuid())
+  name         String
+  bio          String?
+  imageUrl     String?         @map("image_url")
+  strategy     String?
+  netWorth     String?         @map("net_worth")
+  lastUpdated  DateTime        @default(now()) @map("last_updated")
+  
+  stocks       InvestorStock[]
+
+  @@map("investors")
+}
+
+enum InvestorStockStatus {
+  HELD
+  SOLD
+}
+
+model InvestorStock {
+  id           String    @id @default(uuid())
+  investorId   String    @map("investor_id")
+  stockSymbol  String    @map("stock_symbol")
+  status       InvestorStockStatus
+  quantity     String?   // e.g. "1.5% Stake" or "50000 Shares"
+  averagePrice Float?    @map("average_price")
+  
+  investor     Investor  @relation(fields: [investorId], references: [id])
+  stock        Stock     @relation(fields: [stockSymbol], references: [symbol])
+
+  @@map("investor_stocks")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id") // Receiver
+  actorId   String   @map("actor_id") // Sender (e.g. liker)
+  type      String   // LIKE, COMMENT, FOLLOW
+  postId    String?  @map("post_id")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation("UserNotifications", fields: [userId], references: [id])
+  actor     User     @relation("ActorNotifications", fields: [actorId], references: [id])
+  post      Post?    @relation(fields: [postId], references: [id])
+  @@map("notifications")
+}
