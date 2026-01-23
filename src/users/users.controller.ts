@@ -16,7 +16,7 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   @Put('me')
   async updateMe(@Request() req: any, @Body() body: { firstName?: string; lastName?: string; bio?: string; avatarUrl?: string }) {
-    return this.usersService.updateProfile(req.user.userId, body);
+    return this.usersService.updateProfile(req.user.id, body);
   }
 
   @Get('profile/:handle')
@@ -29,19 +29,19 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   @Post(':id/follow')
   async followUser(@Request() req: any, @Param('id') id: string) {
-    return this.usersService.followUser(req.user.userId, id);
+    return this.usersService.followUser(req.user.id, id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/unfollow')
   async unfollowUser(@Request() req: any, @Param('id') id: string) {
-    return this.usersService.unfollowUser(req.user.userId, id);
+    return this.usersService.unfollowUser(req.user.id, id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get(':id/is-following')
   async isFollowing(@Request() req: any, @Param('id') id: string) {
-    const isFollowing = await this.usersService.isFollowing(req.user.userId, id);
+    const isFollowing = await this.usersService.isFollowing(req.user.id, id);
     return { isFollowing };
   }
 
@@ -78,7 +78,7 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   @Post('record-visit')
   async recordVisit(@Request() req: any) {
-    return this.usersService.recordVisit(req.user.userId);
+    return this.usersService.recordVisit(req.user.id);
   }
 
   @Get(':id/visits')
