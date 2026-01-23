@@ -856,7 +856,7 @@ export class StocksService {
       const results = [nifty, sensex];
 
       // Transform to match frontend expectation
-      return results.map(index => ({
+      return results.map((index: any) => ({
         symbol: index.symbol,
         price: index.currentPrice,
         // Calculate approx change value since we only store percent
