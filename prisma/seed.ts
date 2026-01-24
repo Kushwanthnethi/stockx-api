@@ -33,17 +33,15 @@ async function main() {
     });
     console.log(`Admin user seeded: ${adminUser.email}`);
 
-    // Clear existing data in correct order to avoid Foreign Key errors
-    await prisma.interaction.deleteMany({});
-    await prisma.comment.deleteMany({});
-    await prisma.postStock.deleteMany({});
-    await prisma.investorStock.deleteMany({});
-    await prisma.investor.deleteMany({});
+    // Clear existing data - COMMENTED OUT TO PREVENT DATA LOSS ON REDEPLOY
+    // await prisma.interaction.deleteMany({});
+    // await prisma.comment.deleteMany({});
+    // await prisma.postStock.deleteMany({});
+    // await prisma.investorStock.deleteMany({});
+    // await prisma.investor.deleteMany({});
+    // await prisma.post.deleteMany({});
 
-    // Now safe to delete Posts
-    await prisma.post.deleteMany({});
-
-    // Cleanup specific unwanted stocks (e.g. AAPL)
+    // Cleanup specific unwanted stocks (e.g. AAPL) - Keeping this as it seems specific
     await prisma.stock.deleteMany({
         where: {
             symbol: {
@@ -127,32 +125,36 @@ async function main() {
     await seedInvestors(prisma);
     console.log('Investors seeded.');
 
-    // Add Feed Posts so the timeline isn't empty
-    console.log('Seeding posts...');
+    // Add Feed Posts ONLY IF EMPTY so we don't spam or duplicate
+    const postCount = await prisma.post.count();
+    if (postCount === 0) {
+        console.log('Seeding posts (Table empty)...');
 
-    await prisma.post.create({
-        data: {
-            userId: user1.id, // Arjun
-            content: 'Nifty crossing 24k looks imminent! Banks are leading the rally. Bullish on $HDFCBANK. #Nifty50 #StockMarket',
-        }
-    });
+        await prisma.post.create({
+            data: {
+                userId: user1.id, // Arjun
+                content: 'Nifty crossing 24k looks imminent! Banks are leading the rally. Bullish on $HDFCBANK. #Nifty50 #StockMarket',
+            }
+        });
 
-    await prisma.post.create({
-        data: {
-            userId: user2.id, // Priya
-            content: 'Technical breakout seen in $TATAMOTORS above 850 levels. Volume is strong! 🚀 #Breakout #Trading',
-            imageUrl: 'https://images.unsplash.com/photo-1611974765270-ca1258634369?auto=format&fit=crop&q=80&w=600&h=400' // Generic chart image
-        }
-    });
+        await prisma.post.create({
+            data: {
+                userId: user2.id, // Priya
+                content: 'Technical breakout seen in $TATAMOTORS above 850 levels. Volume is strong! 🚀 #Breakout #Trading',
+                imageUrl: 'https://images.unsplash.com/photo-1611974765270-ca1258634369?auto=format&fit=crop&q=80&w=600&h=400' // Generic chart image
+            }
+        });
 
-    await prisma.post.create({
-        data: {
-            userId: user1.id, // Arjun
-            content: 'Just analyzed the quarterly results for $INFY. Margins are stable but guidance is weak. Staying cautious.',
-        }
-    });
-
-    console.log(`Seeding finished. Posts created.`);
+        await prisma.post.create({
+            data: {
+                userId: user1.id, // Arjun
+                content: 'Just analyzed the quarterly results for $INFY. Margins are stable but guidance is weak. Staying cautious.',
+            }
+        });
+        console.log(`Seeding finished. Posts created.`);
+    } else {
+        console.log('Posts already exist. Skipping seed posts.');
+    }
 }
 
 main()
