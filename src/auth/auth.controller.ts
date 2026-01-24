@@ -31,6 +31,9 @@ export class AuthController {
   @Post('login')
   @Public()
   async login(@Body() body: { email: string; password?: string }) {
+    if (!body.password) {
+      throw new UnauthorizedException('Password is required');
+    }
     const user = await this.authService.validateUser(body.email, body.password);
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
