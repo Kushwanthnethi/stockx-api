@@ -1,11 +1,37 @@
 import { PrismaClient } from '@prisma/client';
 import { NIFTY_100 } from '../src/stocks/market-data';
 import { seedInvestors } from './seed-investors';
+import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
 async function main() {
     console.log('Start seeding ...');
+
+    // Create Admin User
+    console.log('Seeding Admin User...');
+    const adminEmail = 'admin@stockx.com';
+    const adminPassword = 'Kush@admins';
+    const adminHashedPassword = await bcrypt.hash(adminPassword, 10);
+
+    const adminUser = await prisma.user.upsert({
+        where: { email: adminEmail },
+        update: {
+            passwordHash: adminHashedPassword,
+            role: 'ADMIN',
+        },
+        create: {
+            email: adminEmail,
+            handle: 'admin',
+            firstName: 'System',
+            lastName: 'Admin',
+            passwordHash: adminHashedPassword,
+            role: 'ADMIN',
+            bio: 'System Administrator',
+            avatarUrl: 'https://ui-avatars.com/api/?name=System+Admin&background=0D8ABC&color=fff'
+        },
+    });
+    console.log(`Admin user seeded: ${adminUser.email}`);
 
     // Clear existing data in correct order to avoid Foreign Key errors
     await prisma.interaction.deleteMany({});
