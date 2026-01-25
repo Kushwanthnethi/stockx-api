@@ -17,10 +17,7 @@ import { AdminModule } from './admin/admin.module';
 @Module({
   imports: [
     ConfigModule.forRoot(),
-    ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', 'uploads'),
-      serveRoot: '/uploads',
-    }),
+    ConfigModule.forRoot(),
     ScheduleModule.forRoot(),
     AuthModule,
     UsersModule,

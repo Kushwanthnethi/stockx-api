@@ -3,9 +3,10 @@ import { PostsService } from './posts.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
+import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
+import { bucket } from '../config/firebase.config';
 
 @Controller('posts')
 export class PostsController {
@@ -20,17 +21,29 @@ export class PostsController {
     @Post('upload')
     @UseGuards(AuthGuard('jwt'))
     @UseInterceptors(FileInterceptor('file', {
-        storage: diskStorage({
-            destination: './uploads',
-            filename: (req, file, cb) => {
-                const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-                cb(null, `${uniqueSuffix}${extname(file.originalname)}`);
-            },
-        }),
+        storage: memoryStorage(), // Use memory storage for Firebase
+        limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     }))
-    uploadFile(@UploadedFile() file: Express.Multer.File) {
+    async uploadFile(@UploadedFile() file: Express.Multer.File) {
+        if (!file) {
+            throw new Error('No file uploaded');
+        }
+
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+        const filename = `${uniqueSuffix}${extname(file.originalname)}`;
+        const fileRef = bucket.file(`uploads/${filename}`);
+
+        await fileRef.save(file.buffer, {
+            contentType: file.mimetype,
+            public: true, // Make file public
+        });
+
+        // Construct public URL manually since we made it public
+        // Or fileRef.publicUrl() if available in newer SDKs, but this is reliable:
+        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileRef.name}`;
+
         return {
-            url: `/uploads/${file.filename}`,
+            url: publicUrl,
         };
     }
 
