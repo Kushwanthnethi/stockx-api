@@ -30,7 +30,7 @@ export class PostsController {
     }))
     uploadFile(@UploadedFile() file: Express.Multer.File) {
         return {
-            url: `http://localhost:3333/uploads/${file.filename}`,
+            url: `/uploads/${file.filename}`,
         };
     }
 
