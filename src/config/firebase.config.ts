@@ -17,7 +17,15 @@ if (!admin.apps.length) {
         }
     } else {
         // Development: Local file fallback
-        const serviceAccountPath = path.resolve(__dirname, '../../serviceAccountKey.json');
+        // Resolving relative to process.cwd() (project root) is safer than __dirname in compiled code
+        const serviceAccountPath = path.resolve(process.cwd(), 'serviceAccountKey.json');
+
+        console.log('Firebase Config: Resolving key at:', serviceAccountPath);
+        // Check if file exists to prevent hard crash 500
+        if (!require('fs').existsSync(serviceAccountPath)) {
+            console.error('CRITICAL: serviceAccountKey.json not found at:', serviceAccountPath);
+            // Don't throw here to avoid crashing entire app startup, let it fail on init if must
+        }
         credential = admin.credential.cert(serviceAccountPath);
     }
 

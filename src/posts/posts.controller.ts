@@ -35,11 +35,19 @@ export class PostsController {
 
         await fileRef.save(file.buffer, {
             contentType: file.mimetype,
-            public: true, // Make file public
+            public: true, // Legacy method
+            metadata: {
+                firebaseStorageDownloadTokens: uniqueSuffix, // Helps with public access sometimes
+            }
         });
 
-        // Construct public URL manually since we made it public
-        // Or fileRef.publicUrl() if available in newer SDKs, but this is reliable:
+        // Explicitly make public
+        try {
+            await fileRef.makePublic();
+        } catch (e) {
+            console.warn('Failed to make file public via makePublic(), checking bucket IAM might be needed', e);
+        }
+
         const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileRef.name}`;
 
         return {
