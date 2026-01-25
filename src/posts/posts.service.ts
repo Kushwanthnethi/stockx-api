@@ -243,7 +243,12 @@ export class PostsService {
     async delete(userId: string, id: string) {
         const post = await this.prisma.post.findUnique({ where: { id } });
         if (!post) throw new Error('Post not found');
-        if (post.userId !== userId) throw new Error('Unauthorized'); // Basic ownership check
+
+        // Check if user is owner or admin
+        const user = await this.prisma.user.findUnique({ where: { id: userId } });
+        if (post.userId !== userId && user?.role !== 'ADMIN') {
+            throw new Error('Unauthorized');
+        }
 
         return this.prisma.post.update({
             where: { id },
