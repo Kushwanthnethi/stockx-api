@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Req, Get, UseInterceptors, UploadedFile, Param, Delete, Patch } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Req, Get, UseInterceptors, UploadedFile, Param, Delete, Patch, HttpException, HttpStatus } from '@nestjs/common';
 import { PostsService } from './posts.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { AuthGuard } from '@nestjs/passport';
@@ -25,34 +25,44 @@ export class PostsController {
         limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     }))
     async uploadFile(@UploadedFile() file: Express.Multer.File) {
-        if (!file) {
-            throw new Error('No file uploaded');
-        }
-
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        const filename = `${uniqueSuffix}${extname(file.originalname)}`;
-        const fileRef = bucket.file(`uploads/${filename}`);
-
-        await fileRef.save(file.buffer, {
-            contentType: file.mimetype,
-            public: true, // Legacy method
-            metadata: {
-                firebaseStorageDownloadTokens: uniqueSuffix, // Helps with public access sometimes
-            }
-        });
-
-        // Explicitly make public
         try {
-            await fileRef.makePublic();
-        } catch (e) {
-            console.warn('Failed to make file public via makePublic(), checking bucket IAM might be needed', e);
+            if (!file) {
+                throw new Error('No file uploaded');
+            }
+
+            console.log('Starting upload for file:', file.originalname);
+            console.log('Target Bucket:', bucket.name);
+
+            const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+            const filename = `${uniqueSuffix}${extname(file.originalname)}`;
+            const fileRef = bucket.file(`uploads/${filename}`);
+
+            await fileRef.save(file.buffer, {
+                contentType: file.mimetype,
+                public: true,
+                metadata: {
+                    firebaseStorageDownloadTokens: uniqueSuffix,
+                }
+            });
+
+            console.log('File saved to bucket');
+
+            try {
+                await fileRef.makePublic();
+            } catch (e) {
+                console.warn('Warning: makePublic() failed (check IAM roles):', e.message);
+            }
+
+            const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileRef.name}`;
+            console.log('Upload successful, URL:', publicUrl);
+
+            return {
+                url: publicUrl,
+            };
+        } catch (error) {
+            console.error('CRITICAL UPLOAD ERROR:', error);
+            throw new HttpException('Image upload failed: ' + error.message, HttpStatus.INTERNAL_SERVER_ERROR);
         }
-
-        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileRef.name}`;
-
-        return {
-            url: publicUrl,
-        };
     }
 
     @Get()
