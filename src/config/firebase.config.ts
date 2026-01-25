@@ -31,7 +31,7 @@ if (!admin.apps.length) {
 
     admin.initializeApp({
         credential,
-        storageBucket: 'stockx-42ea2.appspot.com' // Default bucket is usually project-id.appspot.com
+        storageBucket: 'stockx-42ea2.firebasestorage.app'
     });
 }
 
