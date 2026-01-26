@@ -83,23 +83,29 @@ export class StockOfTheWeekService implements OnModuleInit {
             const narrative = await this.generateNarrative(topPick);
 
             // 4. Save to DB
-            // Check if we already have a pick for this week (Sunday)
+            // Calculate the Sunday of the current week (Start of Week)
             const today = new Date();
-            const sundayDate = new Date(today);
+            const dayOfWeek = today.getDay(); // 0 (Sun) to 6 (Sat)
+            const diff = today.getDate() - dayOfWeek;
+            const sundayDate = new Date(today.setDate(diff));
             sundayDate.setHours(0, 0, 0, 0);
-            // Adjust to the Sunday of this week (if today is Sunday, usage is correct, else find prev/next Sunday logic)
-            // Since this runs on Sunday, today matches. 
-            // If manually running, we might want to align to 'Coming Sunday' or 'Last Sunday'.
-            // Let's assume the "Week Start Date" is the date of publication.
 
-            await this.prisma.stockOfTheWeek.create({
-                data: {
+            await this.prisma.stockOfTheWeek.upsert({
+                where: { weekStartDate: sundayDate },
+                update: {
+                    stockSymbol: topPick.symbol,
+                    convictionScore: topPick.score,
+                    narrative: narrative,
+                    priceAtSelection: topPick.currentPrice,
+                    targetPrice: topPick.currentPrice * 1.15,
+                    stopLoss: topPick.currentPrice * 0.90,
+                },
+                create: {
                     weekStartDate: sundayDate,
                     stockSymbol: topPick.symbol,
                     convictionScore: topPick.score,
                     narrative: narrative,
                     priceAtSelection: topPick.currentPrice,
-                    // Simple targets for now
                     targetPrice: topPick.currentPrice * 1.15,
                     stopLoss: topPick.currentPrice * 0.90,
                 }
@@ -140,7 +146,7 @@ export class StockOfTheWeekService implements OnModuleInit {
         if (!this.genAI) return "AI Narrative unavailable (Missing Key).";
 
         try {
-            const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = this.genAI.getGenerativeModel({ model: "gemini-pro" });
 
             const prompt = `
         Act as a professional financial analyst for the Indian Stock Market.
