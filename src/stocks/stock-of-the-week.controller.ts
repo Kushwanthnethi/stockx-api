@@ -8,7 +8,11 @@ export class StockOfTheWeekController {
 
     @Get('latest')
     async getLatest() {
-        return this.sowService.getLatestPick();
+        const pick = await this.sowService.getLatestPick();
+        if (pick) {
+            console.log(`[API] Serving Stock of the Week: ${pick.stockSymbol}, Narrative Length: ${pick.narrative?.length}`);
+        }
+        return pick;
     }
 
     @Get('archive')
