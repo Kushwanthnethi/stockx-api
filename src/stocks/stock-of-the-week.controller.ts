@@ -25,4 +25,9 @@ export class StockOfTheWeekController {
     async triggerSelection() {
         return this.sowService.selectStockOfTheWeek();
     }
+
+    @Post('reset')
+    async reset() {
+        return this.sowService.reset();
+    }
 }

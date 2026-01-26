@@ -242,4 +242,9 @@ export class StockOfTheWeekService implements OnModuleInit {
             skip: 1 // Skip the latest one (current)
         });
     }
+
+    async reset() {
+        this.logger.warn('Resetting all Stock of the Week data...');
+        return this.prisma.stockOfTheWeek.deleteMany({});
+    }
 }
