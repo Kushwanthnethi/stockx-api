@@ -14,9 +14,10 @@ export class StockOfTheWeekService implements OnModuleInit {
         private prisma: PrismaService,
         private stocksService: StocksService,
     ) {
-        const apiKey = process.env.GEMINI_API_KEY;
+        const apiKey = process.env.GEMINI_API_KEY?.trim();
         if (apiKey) {
             this.genAI = new GoogleGenerativeAI(apiKey);
+            this.logger.log(`AI Initialized with Key: ${apiKey.substring(0, 5)}...`);
         } else {
             this.logger.warn('GEMINI_API_KEY not found. AI features will be disabled.');
         }
