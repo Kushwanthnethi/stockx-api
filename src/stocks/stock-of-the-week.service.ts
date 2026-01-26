@@ -14,25 +14,42 @@ export class StockOfTheWeekService implements OnModuleInit {
         private prisma: PrismaService,
         private stocksService: StocksService,
     ) {
-        const apiKey = process.env.GEMINI_API_KEY?.trim();
+        // Robust sanitization: remove whitespace AND quotes (User error common in Env Vars)
+        const rawKey = process.env.GEMINI_API_KEY || "";
+        const apiKey = rawKey.replace(/["']/g, "").trim();
+
         if (apiKey) {
             this.genAI = new GoogleGenerativeAI(apiKey);
-            this.logger.log(`AI Initialized with Key: ${apiKey.substring(0, 5)}...`);
+            this.logger.log(`AI Initialized with Key: ${apiKey.substring(0, 5)}... (Length: ${apiKey.length})`);
         } else {
             this.logger.warn('GEMINI_API_KEY not found. AI features will be disabled.');
         }
     }
 
     async onModuleInit() {
+        // Debug: List available models to verify connectivity and key permissions
+        if (this.genAI) {
+            try {
+                // Note: The high-level SDK doesn't expose listModels directly easily on the client instance in all versions.
+                // We will use a simple generation test on startup to 'fail fast' and log explicit details.
+                const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                const result = await model.generateContent("Test");
+                await result.response;
+                this.logger.log("✅ Startup AI Verification Passed: gemini-1.5-flash is accessible.");
+            } catch (e: any) {
+                this.logger.error(`❌ Startup AI Verification Failed: ${e.message}`);
+                // Try to infer issue
+                if (e.message.includes("404")) this.logger.error("-> Hint: API Key might be invalid, Project API not enabled, or Key has extra quotes.");
+            }
+        }
+
         // Auto-seed on startup if empty
-        // Auto-seed on startup if empty or if narrative is broken/short (legacy fix)
         const latest = await this.prisma.stockOfTheWeek.findFirst({
             orderBy: { weekStartDate: 'desc' }
         });
 
         if (!latest || (latest.narrative && latest.narrative.length < 200)) {
             this.logger.log('Stock of the Week missing or has incomplete narrative. Running selection/repair...');
-            // Delay slightly to ensure DB connection
             setTimeout(() => this.handleWeeklySelection(), 5000);
         }
     }
