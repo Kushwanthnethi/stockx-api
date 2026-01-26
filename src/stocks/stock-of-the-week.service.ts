@@ -150,7 +150,7 @@ export class StockOfTheWeekService implements OnModuleInit {
         if (!this.genAI) return "AI Narrative unavailable (Missing Key).";
 
         try {
-            const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+            const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
             const prompt = `
         Act as a senior equity research analyst for the Indian Stock Market (NIFTY 50 universe).
