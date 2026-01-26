@@ -8,11 +8,7 @@ export class StockOfTheWeekController {
 
     @Get('latest')
     async getLatest() {
-        const pick = await this.sowService.getLatestPick();
-        if (pick) {
-            console.log(`[API] Serving Stock of the Week: ${pick.stockSymbol}, Narrative Length: ${pick.narrative?.length}`);
-        }
-        return pick;
+        return this.sowService.getLatestPick();
     }
 
     @Get('archive')
@@ -20,14 +16,8 @@ export class StockOfTheWeekController {
         return this.sowService.getArchive();
     }
 
-    // Admin/Dev only - trigger manually
     @Post('trigger')
     async triggerSelection() {
         return this.sowService.selectStockOfTheWeek();
-    }
-
-    @Post('reset')
-    async reset() {
-        return this.sowService.reset();
     }
 }
