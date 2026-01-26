@@ -27,11 +27,15 @@ export class StockOfTheWeekService implements OnModuleInit {
     }
 
     async onModuleInit() {
+        const apiKey = process.env.GEMINI_API_KEY?.trim();
+        if (apiKey) {
+            const masked = apiKey.length > 8 ? apiKey.substring(0, 8) + '...' : '***';
+            this.logger.log(`Using API Key starting with: ${masked}`);
+        }
+
         // Debug: List available models to verify connectivity and key permissions
         if (this.genAI) {
             try {
-                // Note: The high-level SDK doesn't expose listModels directly easily on the client instance in all versions.
-                // We will use a simple generation test on startup to 'fail fast' and log explicit details.
                 const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
                 const result = await model.generateContent("Test");
                 await result.response;
@@ -39,7 +43,7 @@ export class StockOfTheWeekService implements OnModuleInit {
             } catch (e: any) {
                 this.logger.error(`❌ Startup AI Verification Failed: ${e.message}`);
                 // Try to infer issue
-                if (e.message.includes("404")) this.logger.error("-> Hint: API Key might be invalid, Project API not enabled, or Key has extra quotes.");
+                if (e.message.includes("404")) this.logger.error("-> Hint: Project API not enabled. Go to https://aistudio.google.com/app/apikey to ensure you have the right key type.");
             }
         }
 
