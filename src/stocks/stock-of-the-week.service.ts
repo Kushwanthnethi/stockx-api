@@ -212,14 +212,19 @@ export class StockOfTheWeekService implements OnModuleInit {
                 const response = await result.response;
                 const text = response.text();
 
-                if (text && text.length > 50) return text;
+                if (text && text.length > 50) {
+                    this.logger.log(`✅ Model ${modelName} success! Generated ${text.length} chars.`);
+                    return text;
+                } else {
+                    this.logger.warn(`⚠️ Model ${modelName} returned empty or too short text: "${text?.substring(0, 50)}..."`);
+                }
             } catch (e: any) {
-                this.logger.warn(`Model ${modelName} failed: ${e.message}`);
+                this.logger.warn(`❌ Model ${modelName} failed: ${e.message}`);
                 // Continue to next model
             }
         }
 
-        this.logger.error("AI Generation failed completely (all models attempted).");
+        this.logger.error("🚨 ALL AI MODELS FAILED. Using fallback content.");
         return `Strong fundamental pick in the ${stock.sector} sector with solid ROE of ${(stock.returnOnEquity * 100).toFixed(1)}%.`;
     }
 
