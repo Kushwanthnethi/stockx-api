@@ -202,7 +202,7 @@ export class StockOfTheWeekService implements OnModuleInit {
         Keep the tone institutional-grade (like detailed brokerage reports). Total length: 300-400 words.
       `;
 
-        const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro", "gemini-pro"];
+        const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro", "gemini-pro"];
 
         for (const modelName of modelsToTry) {
             try {
