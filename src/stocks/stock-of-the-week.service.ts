@@ -198,26 +198,25 @@ export class StockOfTheWeekService implements OnModuleInit {
         Keep the tone institutional-grade (like detailed brokerage reports). Total length: 300-400 words.
       `;
 
-        try {
-            // Primary Attempt
+        const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro", "gemini-pro"];
+
+        for (const modelName of modelsToTry) {
             try {
-                const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                this.logger.log(`Attempting generation with model: ${modelName}`);
+                const model = this.genAI.getGenerativeModel({ model: modelName });
                 const result = await model.generateContent(prompt);
                 const response = await result.response;
-                return response.text();
-            } catch (primaryError) {
-                this.logger.warn(`Primary model (gemini-1.5-flash) failed: ${primaryError.message}. Attempting fallback...`);
+                const text = response.text();
 
-                // Fallback Attempt
-                const modelPro = this.genAI.getGenerativeModel({ model: "gemini-pro" });
-                const resultPro = await modelPro.generateContent(prompt);
-                const responsePro = await resultPro.response;
-                return responsePro.text();
+                if (text && text.length > 50) return text;
+            } catch (e: any) {
+                this.logger.warn(`Model ${modelName} failed: ${e.message}`);
+                // Continue to next model
             }
-        } catch (e) {
-            this.logger.error("AI Generation failed completely (all models)", e);
-            return `Strong fundamental pick in the ${stock.sector} sector with solid ROE of ${(stock.returnOnEquity * 100).toFixed(1)}%.`;
         }
+
+        this.logger.error("AI Generation failed completely (all models attempted).");
+        return `Strong fundamental pick in the ${stock.sector} sector with solid ROE of ${(stock.returnOnEquity * 100).toFixed(1)}%.`;
     }
 
     async getLatestPick() {
