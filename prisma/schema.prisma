@@ -5,7 +5,7 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  // directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -94,6 +94,7 @@ model Stock {
   posts       PostStock[]
   investorStocks InvestorStock[]
   watchedBy   Watchlist[]
+  stockOfTheWeeks StockOfTheWeek[]
 
   @@map("stocks")
 }
@@ -249,4 +250,30 @@ model Notification {
   actor     User     @relation("ActorNotifications", fields: [actorId], references: [id])
   post      Post?    @relation(fields: [postId], references: [id])
   @@map("notifications")
+}
+
+model StockOfTheWeek {
+  id              String   @id @default(uuid())
+  weekStartDate   DateTime @map("week_start_date") // The Sunday of the release
+  stockSymbol     String   @map("stock_symbol")    // Relation to Stock
+  
+  convictionScore Float    @map("conviction_score") // 0-100
+  narrative       String   // AI Generated text
+  
+  // Snapshot of key metrics at time of selection (for historical accuracy)
+  priceAtSelection Float   @map("price_at_selection")
+  targetPrice      Float?  @map("target_price")
+  stopLoss         Float?  @map("stop_loss")
+  
+  // Performance Tracking
+  finalPrice       Float?  @map("final_price")      // Price at end of week (or when archived)
+  performancePct   Float?  @map("performance_pct")
+  benchmarkReturn  Float?  @map("benchmark_return") // e.g. Nifty return during same period
+
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  stock           Stock    @relation(fields: [stockSymbol], references: [symbol])
+  
+  @@unique([weekStartDate]) // Only one pick per week
+  @@map("stock_of_the_week")
 }
