@@ -24,9 +24,13 @@ export class StockOfTheWeekService implements OnModuleInit {
 
     async onModuleInit() {
         // Auto-seed on startup if empty
-        const count = await this.prisma.stockOfTheWeek.count();
-        if (count === 0) {
-            this.logger.log('No Stock of the Week found. Running initial selection...');
+        // Auto-seed on startup if empty or if narrative is broken/short (legacy fix)
+        const latest = await this.prisma.stockOfTheWeek.findFirst({
+            orderBy: { weekStartDate: 'desc' }
+        });
+
+        if (!latest || (latest.narrative && latest.narrative.length < 200)) {
+            this.logger.log('Stock of the Week missing or has incomplete narrative. Running selection/repair...');
             // Delay slightly to ensure DB connection
             setTimeout(() => this.handleWeeklySelection(), 5000);
         }
@@ -149,24 +153,34 @@ export class StockOfTheWeekService implements OnModuleInit {
             const model = this.genAI.getGenerativeModel({ model: "gemini-pro" });
 
             const prompt = `
-        Act as a professional financial analyst for the Indian Stock Market.
-        Write a convincing "Stock of the Week" thesis for ${stock.companyName} (${stock.symbol}).
+        Act as a senior equity research analyst for the Indian Stock Market (NIFTY 50 universe).
+        Write a comprehensive, deep-dive "Investment Thesis" for ${stock.companyName} (${stock.symbol}).
         
-        Key Data:
-        - Price: ₹${stock.currentPrice}
-        - PE Ratio: ${stock.peRatio}
-        - ROE: ${(stock.returnOnEquity * 100).toFixed(2)}%
+        Key Data Points:
+        - Current Price: ₹${stock.currentPrice}
+        - P/E Ratio: ${stock.peRatio ? stock.peRatio.toFixed(2) : 'N/A'} (Sector Avg: ~25)
+        - ROE: ${stock.returnOnEquity ? (stock.returnOnEquity * 100).toFixed(2) : 'N/A'}%
         - Market Cap: ₹${(stock.marketCap / 10000000).toFixed(2)} Crores
+        - 52W High: ₹${stock.high52Week}
         - Sector: ${stock.sector || 'N/A'}
-        - Description: ${stock.description?.substring(0, 200)}...
-
-        Structure:
-        1. **The Opportunity**: Why now? (Brief hook)
-        2. **Key Drivers**: Mention 2-3 strong fundamental points (Growth, Margins, etc).
-        3. **Risks**: One key risk to watch.
-        4. **Verdict**: A confident concluding sentence.
-
-        Tone: Professional, calm, insightful. No hype. Max 250 words.
+        
+        Your analysis must be structured, professional, and trustworthy. Do not use emojis or marketing fluff.
+        
+        Structure your response exactly as follows (keep the headers):
+        
+        1. **Investment Rationale**
+        Analyze the company's competitive advantage, recent financial performance, and why it is a compelling buy right now. Mention the ROE and Valuation specifically.
+        
+        2. **Technical Setup**
+        Comment on the price action relative to 52-week highs and momentum (based on the price change).
+        
+        3. **Key Risks**
+        Identify 1-2 critical risks (regulatory, sector-specific, or valuation concerns).
+        
+        4. **The Verdict**
+        A clear, decisive concluding statement on why this is the Stock of the Week.
+        
+        Keep the tone institutional-grade (like detailed brokerage reports). Total length: 300-400 words.
       `;
 
             const result = await model.generateContent(prompt);
