@@ -1,12 +1,12 @@
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StocksService } from './stocks.service';
 import { Cron } from '@nestjs/schedule';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 @Injectable()
-export class StockOfTheWeekService {
+export class StockOfTheWeekService implements OnModuleInit {
     private readonly logger = new Logger(StockOfTheWeekService.name);
     private genAI: GoogleGenerativeAI;
 
@@ -19,6 +19,16 @@ export class StockOfTheWeekService {
             this.genAI = new GoogleGenerativeAI(apiKey);
         } else {
             this.logger.warn('GEMINI_API_KEY not found. AI features will be disabled.');
+        }
+    }
+
+    async onModuleInit() {
+        // Auto-seed on startup if empty
+        const count = await this.prisma.stockOfTheWeek.count();
+        if (count === 0) {
+            this.logger.log('No Stock of the Week found. Running initial selection...');
+            // Delay slightly to ensure DB connection
+            setTimeout(() => this.handleWeeklySelection(), 5000);
         }
     }
 
