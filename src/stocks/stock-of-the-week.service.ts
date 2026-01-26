@@ -149,10 +149,7 @@ export class StockOfTheWeekService implements OnModuleInit {
     private async generateNarrative(stock: any): Promise<string> {
         if (!this.genAI) return "AI Narrative unavailable (Missing Key).";
 
-        try {
-            const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-            const prompt = `
+        const prompt = `
         Act as a senior equity research analyst for the Indian Stock Market (NIFTY 50 universe).
         Write a comprehensive, deep-dive "Investment Thesis" for ${stock.companyName} (${stock.symbol}).
         
@@ -183,11 +180,24 @@ export class StockOfTheWeekService implements OnModuleInit {
         Keep the tone institutional-grade (like detailed brokerage reports). Total length: 300-400 words.
       `;
 
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            return response.text();
+        try {
+            // Primary Attempt
+            try {
+                const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                const result = await model.generateContent(prompt);
+                const response = await result.response;
+                return response.text();
+            } catch (primaryError) {
+                this.logger.warn(`Primary model (gemini-1.5-flash) failed: ${primaryError.message}. Attempting fallback...`);
+
+                // Fallback Attempt
+                const modelPro = this.genAI.getGenerativeModel({ model: "gemini-pro" });
+                const resultPro = await modelPro.generateContent(prompt);
+                const responsePro = await resultPro.response;
+                return responsePro.text();
+            }
         } catch (e) {
-            this.logger.error("AI Generation failed", e);
+            this.logger.error("AI Generation failed completely (all models)", e);
             return `Strong fundamental pick in the ${stock.sector} sector with solid ROE of ${(stock.returnOnEquity * 100).toFixed(1)}%.`;
         }
     }
