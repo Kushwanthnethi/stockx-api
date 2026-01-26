@@ -36,10 +36,10 @@ export class StockOfTheWeekService implements OnModuleInit {
         // Debug: List available models to verify connectivity and key permissions
         if (this.genAI) {
             try {
-                const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
                 const result = await model.generateContent("Test");
                 await result.response;
-                this.logger.log("✅ Startup AI Verification Passed: gemini-1.5-flash is accessible.");
+                this.logger.log("✅ Startup AI Verification Passed: gemini-2.5-flash is accessible.");
             } catch (e: any) {
                 this.logger.error(`❌ Startup AI Verification Failed: ${e.message}`);
                 // Try to infer issue
