@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Req, Get, UseInterceptors, UploadedFile, Param, Delete, Patch, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Req, Get, UseInterceptors, UploadedFile, Param, Delete, Patch, HttpException, HttpStatus, Query } from '@nestjs/common';
 import { PostsService } from './posts.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { AuthGuard } from '@nestjs/passport';
@@ -67,9 +67,9 @@ export class PostsController {
 
     @Get()
     @UseGuards(OptionalJwtAuthGuard)
-    findAll(@Req() req: any) {
+    findAll(@Req() req: any, @Query('page') page: number = 1, @Query('limit') limit: number = 10) {
         // req.user will be populated if token is valid, else null
-        return this.postsService.findAll(req.user?.id);
+        return this.postsService.findAll(req.user?.id, Number(page), Number(limit));
     }
 
     @Get('symbol/:symbol')

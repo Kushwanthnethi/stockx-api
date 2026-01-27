@@ -28,7 +28,9 @@ export class PostsService {
         });
     }
 
-    async findAll(userId?: string) {
+    async findAll(userId?: string, page: number = 1, limit: number = 10) {
+        const skip = (page - 1) * limit;
+
         // Build exclusion list if user is logged in
         const whereClause: any = { isDeleted: false };
 
@@ -51,6 +53,8 @@ export class PostsService {
 
         const posts = await this.prisma.post.findMany({
             where: whereClause,
+            take: limit,
+            skip: skip,
             orderBy: { createdAt: 'desc' },
             include: {
                 user: true,
