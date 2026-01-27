@@ -552,9 +552,21 @@ export class StocksService {
 
   async findAll() {
     // Return all stocks in DB
-    return this.prisma.stock.findMany({
+    const stocks = await this.prisma.stock.findMany({
       orderBy: { lastUpdated: 'desc' }
     });
+
+    // Background refresh for stocks with missing price (non-blocking)
+    const staleStocks = stocks.filter(s => !s.currentPrice || s.currentPrice === 0);
+    if (staleStocks.length > 0) {
+      console.log(`Triggering background refresh for ${staleStocks.length} new/stale stocks...`);
+      // Process in batches of 10 to avoid blasting the API
+      // We don't await this so the UI loads instantly with what we have, 
+      // and data pops in on next refresh or via socket if we had one.
+      this.getBatch(staleStocks.slice(0, 50).map(s => s.symbol));
+    }
+
+    return stocks;
   }
 
   async getMarketSummary(page = 1, limit = 10) {
@@ -576,7 +588,8 @@ export class StocksService {
       // 2. Identify stale stocks
       for (const stock of dbStocks) {
         // If price is 0, or missing fundamentals (Market Cap/PE), or old -> fetch it
-        if (!stock.currentPrice || !stock.marketCap || !stock.peRatio || stock.lastUpdated < fifteenMinutesAgo) {
+        // Updated logic: New stocks (from Nifty 500 import) will have price=0. Refresh them immediately.
+        if (!stock.currentPrice || stock.currentPrice === 0 || !stock.marketCap || stock.lastUpdated < fifteenMinutesAgo) {
           symbolsToFetch.push(stock.symbol);
         }
       }
