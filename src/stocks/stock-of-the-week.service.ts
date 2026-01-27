@@ -65,10 +65,14 @@ export class StockOfTheWeekService implements OnModuleInit {
         await this.selectStockOfTheWeek();
     }
 
+    private async generateNarrative(stock: any): Promise<string> {
+        // Legacy method kept for interface compatibility if needed, but main logic is now inside decideWinnerWithAI
+        return "Legacy narrative generation called directly. This should not happen in new flow.";
+    }
+
     async selectStockOfTheWeek() {
         try {
             // 1. Fetch Universe (Nifty 50 + Others)
-            // For now, we use the stocks already in our DB or fetch a fresh batch
             const allStocks = await this.stocksService.findAll();
 
             // Filter for valid data
@@ -93,23 +97,44 @@ export class StockOfTheWeekService implements OnModuleInit {
                 return;
             }
 
-            // 2. Score Candidates
+            // 2. Score & Shortlist Finalists
             const scored = candidates.map(stock => {
                 const score = this.calculateConvictionScore(stock);
                 return { ...stock, score };
             });
 
-            // Sort by score desc
+            // Sort by score desc and take TOP 5
             scored.sort((a, b) => b.score - a.score);
+            const finalists = scored.slice(0, 5);
 
-            const topPick = scored[0];
-            this.logger.log(`Top pick selected: ${topPick.symbol} with score ${topPick.score}`);
+            this.logger.log(`Top 5 Finalists Identified: ${finalists.map(f => f.symbol).join(', ')}`);
 
-            // 3. Generate Narrative
-            const narrative = await this.generateNarrative(topPick);
+            // 3. AI Decision Phase
+            let winningPick;
+            let finalNarrative;
+            let finalScore;
+
+            if (this.genAI) {
+                const decision = await this.decideWinnerWithAI(finalists);
+                if (decision) {
+                    winningPick = finalists.find(f => f.symbol === decision.symbol) || finalists[0];
+                    finalNarrative = decision.narrative;
+                    finalScore = decision.score || winningPick.score;
+                    this.logger.log(`🤖 AI Overruled Math. Winner: ${winningPick.symbol} (Score: ${finalScore})`);
+                } else {
+                    this.logger.warn("AI Decision failed. Fallback to #1 Math Pick.");
+                    winningPick = finalists[0];
+                    // Generate basic narrative as fallback
+                    finalNarrative = `Strong fundamental pick in the ${winningPick.sector} sector with solid ROE of ${(winningPick.returnOnEquity * 100).toFixed(1)}%.`;
+                    finalScore = winningPick.score;
+                }
+            } else {
+                winningPick = finalists[0];
+                finalNarrative = `Strong fundamental pick in the ${winningPick.sector} sector with solid ROE of ${(winningPick.returnOnEquity * 100).toFixed(1)}% (AI Unavailable).`;
+                finalScore = winningPick.score;
+            }
 
             // 4. Save to DB
-            // Calculate the Sunday of the current week (Start of Week)
             const today = new Date();
             const dayOfWeek = today.getDay(); // 0 (Sun) to 6 (Sat)
             const diff = today.getDate() - dayOfWeek;
@@ -119,26 +144,26 @@ export class StockOfTheWeekService implements OnModuleInit {
             await this.prisma.stockOfTheWeek.upsert({
                 where: { weekStartDate: sundayDate },
                 update: {
-                    stockSymbol: topPick.symbol,
-                    convictionScore: topPick.score,
-                    narrative: narrative,
-                    priceAtSelection: topPick.currentPrice,
-                    targetPrice: topPick.currentPrice * 1.15,
-                    stopLoss: topPick.currentPrice * 0.90,
+                    stockSymbol: winningPick.symbol,
+                    convictionScore: finalScore,
+                    narrative: finalNarrative,
+                    priceAtSelection: winningPick.currentPrice,
+                    targetPrice: winningPick.currentPrice * 1.15,
+                    stopLoss: winningPick.currentPrice * 0.90,
                 },
                 create: {
                     weekStartDate: sundayDate,
-                    stockSymbol: topPick.symbol,
-                    convictionScore: topPick.score,
-                    narrative: narrative,
-                    priceAtSelection: topPick.currentPrice,
-                    targetPrice: topPick.currentPrice * 1.15,
-                    stopLoss: topPick.currentPrice * 0.90,
+                    stockSymbol: winningPick.symbol,
+                    convictionScore: finalScore,
+                    narrative: finalNarrative,
+                    priceAtSelection: winningPick.currentPrice,
+                    targetPrice: winningPick.currentPrice * 1.15,
+                    stopLoss: winningPick.currentPrice * 0.90,
                 }
             });
 
-            this.logger.log(`Stock of the Week published: ${topPick.symbol}`);
-            return topPick;
+            this.logger.log(`Stock of the Week published: ${winningPick.symbol}`);
+            return winningPick;
 
         } catch (error) {
             this.logger.error('Failed to select Stock of the Week', error);
@@ -168,59 +193,80 @@ export class StockOfTheWeekService implements OnModuleInit {
         return Math.min(Math.floor(score), 99);
     }
 
-    private async generateNarrative(stock: any): Promise<string> {
-        if (!this.genAI) return "AI Narrative unavailable (Missing Key).";
+    private async decideWinnerWithAI(finalists: any[]): Promise<{ symbol: string, narrative: string, score: number } | null> {
+        this.logger.log("Gathering news for finalists...");
+
+        // Fetch news for all 5 in parallel
+        const enrichedFinalists = await Promise.all(finalists.map(async (f) => {
+            const news = await this.stocksService.getStockNews(f.symbol);
+            const topNews = news.slice(0, 2).map((n: any) => `- ${n.title} (${new Date(n.publishedAt).toLocaleDateString()})`).join('\n');
+            return {
+                ...f,
+                newsSnippet: topNews || "No recent major news."
+            };
+        }));
 
         const prompt = `
-        Act as a senior equity research analyst for the Indian Stock Market (NIFTY 50 universe).
-        Write a comprehensive, deep-dive "Investment Thesis" for ${stock.companyName} (${stock.symbol}).
+        Act as a Senior Portfolio Manager for the Indian Stock Market.
+        I have mathematically shortlisted 5 strong candidates.
         
-        Key Data Points:
-        - Current Price: ₹${stock.currentPrice}
-        - P/E Ratio: ${stock.peRatio ? stock.peRatio.toFixed(2) : 'N/A'} (Sector Avg: ~25)
-        - ROE: ${stock.returnOnEquity ? (stock.returnOnEquity * 100).toFixed(2) : 'N/A'}%
-        - Market Cap: ₹${(stock.marketCap / 10000000).toFixed(2)} Crores
-        - 52W High: ₹${stock.high52Week}
-        - Sector: ${stock.sector || 'N/A'}
+        Your Goal: Review their financials AND recent news, then pick the ONE single best stock for a **4-Week Holding Period (approx. 1 Month)**.
         
-        Your analysis must be structured, professional, and trustworthy. Do not use emojis or marketing fluff.
+        THE CANDIDATES:
+        ${enrichedFinalists.map(f => `
+        [${f.symbol}] ${f.companyName}
+        - Price: ₹${f.currentPrice}, Trend: ${f.changePercent > 0 ? '+' : ''}${f.changePercent.toFixed(2)}%
+        - PE: ${f.peRatio?.toFixed(1)}, ROE: ${(f.returnOnEquity * 100).toFixed(1)}%
+        - Sector: ${f.sector}
+        - Recent News/Buzz:
+        ${f.newsSnippet}
+        `).join('\n------------------------\n')}
         
-        Structure your response exactly as follows (keep the headers):
+        INSTRUCTIONS:
+        1. Focus on the next 30 days. Look for catalysts (Results, Monthly Expiry trends, Sector rotation) that will play out over a month.
+        2. Compare them. Look for "Red Flags" in the news.
+        3. Pick the WINNER.
+        4. Write a professional "Investment Thesis" for the winner (300 words).
         
-        1. **Investment Rationale**
-        Analyze the company's competitive advantage, recent financial performance, and why it is a compelling buy right now. Mention the ROE and Valuation specifically.
-        
-        2. **Technical Setup**
-        Comment on the price action relative to 52-week highs and momentum (based on the price change).
-        
-        3. **Key Risks**
-        Identify 1-2 critical risks (regulatory, sector-specific, or valuation concerns).
-        
-        4. **The Verdict**
-        A clear, decisive concluding statement on why this is the Stock of the Week.
-        
-        Keep the tone institutional-grade (like detailed brokerage reports). Total length: 300-400 words.
-      `;
-
-        const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro", "gemini-pro"];
-
-        for (const modelName of modelsToTry) {
-            try {
-                this.logger.log(`Attempting generation with model: ${modelName}`);
-                const model = this.genAI.getGenerativeModel({ model: modelName });
-                const result = await model.generateContent(prompt);
-                const response = await result.response;
-                const text = response.text();
-
-                if (text && text.length > 50) return text;
-            } catch (e: any) {
-                this.logger.warn(`Model ${modelName} failed: ${e.message}`);
-                // Continue to next model
-            }
+        OUTPUT FORMAT (JSON ONLY):
+        {
+            "winner_symbol": "RELIANCE.NS",
+            "conviction_score": 92,
+            "thesis_markdown": "1. **Investment Rationale**\n..."
         }
+        
+        For the thesis_markdown, follow this structure:
+        1. **Investment Rationale** (Why this stock beat the others?)
+        2. **Technical Setup** (Price action & 30-day outlook)
+        3. **Key Risks**
+        4. **The Verdict** (Explicitly mention the 4-week horizon)
+        `;
 
-        this.logger.error("AI Generation failed completely (all models attempted).");
-        return `Strong fundamental pick in the ${stock.sector} sector with solid ROE of ${(stock.returnOnEquity * 100).toFixed(1)}%.`;
+        try {
+            const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash", generationConfig: { responseMimeType: "application/json" } });
+            const result = await model.generateContent(prompt);
+            const responseText = result.response.text();
+
+            this.logger.log(`AI Response: ${responseText.substring(0, 100)}...`);
+
+            const data = JSON.parse(responseText);
+
+            // Validate symbol exists in our list (handle potential AI hallucination of symbol format)
+            const matchedStats = finalists.find(f => f.symbol === data.winner_symbol || f.symbol.split('.')[0] === data.winner_symbol.split('.')[0]);
+
+            if (matchedStats && data.thesis_markdown) {
+                return {
+                    symbol: matchedStats.symbol, // Use our trusted symbol
+                    narrative: data.thesis_markdown,
+                    score: data.conviction_score || matchedStats.score // Use AI score if reasonable
+                };
+            }
+            return null;
+
+        } catch (e) {
+            this.logger.error("AI Decision Making Error", e);
+            return null;
+        }
     }
 
     async getLatestPick() {
@@ -236,5 +282,10 @@ export class StockOfTheWeekService implements OnModuleInit {
             include: { stock: true },
             skip: 1 // Skip the latest one (current)
         });
+    }
+
+    async reset() {
+        this.logger.warn('Resetting all Stock of the Week data...');
+        return this.prisma.stockOfTheWeek.deleteMany({});
     }
 }
