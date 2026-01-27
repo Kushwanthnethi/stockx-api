@@ -11,16 +11,23 @@ export class StocksService {
     if (this.yahooFinance) return this.yahooFinance;
 
     try {
+      // Dynamic import to handle ESM/CommonJS quirks of this library
       const pkg = await import('yahoo-finance2');
-      const YahooFinanceClass = pkg.default as any;
+      // Check different import possibilities
+      const YahooFinanceClass = pkg.default || pkg;
 
-      this.yahooFinance = new YahooFinanceClass({
-        validation: { logErrors: false },
-        // Try to suppress notices if supported
-      });
+      if (typeof YahooFinanceClass === 'function') {
+        this.yahooFinance = new YahooFinanceClass({
+          validation: { logErrors: true } // Enable logging to see why it fails
+        });
+      } else {
+        // Fallback if it's already an instance or different shape
+        this.yahooFinance = YahooFinanceClass;
+      }
+
+      console.log('Yahoo Finance client initialized');
     } catch (e) {
       console.error('Failed to initialize YahooFinance client', e);
-      // Fallback or retry?
       throw e;
     }
     return this.yahooFinance;
@@ -168,9 +175,17 @@ export class StocksService {
 
       } catch (error) {
         console.error(`Failed to fetch data for ${symbol}:`, error);
-        if (stock) return stock; // Return stale data if fetch fails
-        // If we have no data and fetch failed, throw not found
-        // throw new NotFoundException(`Stock ${symbol} not found`);
+
+        // CRITICAL: Update lastUpdated even on failure to prevent immediate retry loop (spamming API)
+        // If we don't do this, every request will try to fetch again, causing 429s.
+        // We set it to now, so it won't try again for another 15 minutes (or whatever logic checks `lastUpdated`)
+        if (stock) {
+          await this.prisma.stock.update({
+            where: { symbol },
+            data: { lastUpdated: new Date() }
+          });
+          return stock;
+        }
       }
     }
 
