@@ -49,7 +49,7 @@ export class ScreenerService {
 
             const queryOptions = {
                 scrIds: scrId,
-                count: count,
+                count: count * 3, // Fetch more to allow for filtering
                 region: 'IN',
                 lang: 'en-IN'
             };
@@ -60,8 +60,17 @@ export class ScreenerService {
                 return [];
             }
 
+            // Filter for Indian exchanges only
+            const validExchanges = ['NSI', 'NSE', 'BSE', 'BOM'];
+
+            const filteredQuotes = result.quotes.filter((q: any) => {
+                const isIndianExchange = validExchanges.includes(q.exchange);
+                const hasIndianSuffix = q.symbol && (q.symbol.endsWith('.NS') || q.symbol.endsWith('.BO'));
+                return isIndianExchange || hasIndianSuffix;
+            });
+
             // Transform generic quotes to our app's standard format
-            return result.quotes.map((q: any) => ({
+            return filteredQuotes.slice(0, count).map((q: any) => ({
                 symbol: q.symbol,
                 companyName: q.shortName || q.longName || q.symbol,
                 price: q.regularMarketPrice,
