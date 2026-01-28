@@ -206,7 +206,7 @@ model Comment {
 
 model Investor {
   id           String          @id @default(uuid())
-  name         String          @unique
+  name         String
   bio          String?
   imageUrl     String?         @map("image_url")
   strategy     String?
