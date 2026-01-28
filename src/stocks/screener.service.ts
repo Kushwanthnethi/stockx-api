@@ -57,13 +57,32 @@ export class ScreenerService {
 
             if (!result || !result.quotes || result.quotes.length === 0) return [];
 
-            // 2. Initial Filter: strict Indan exchanges
-            const validExchanges = ['NSI', 'NSE', 'BSE', 'BOM'];
-            let quotes = result.quotes.filter((q: any) => {
-                const isIndianExchange = validExchanges.includes(q.exchange);
-                const hasIndianSuffix = q.symbol && (q.symbol.endsWith('.NS') || q.symbol.endsWith('.BO'));
-                return isIndianExchange || hasIndianSuffix;
+            // Relaxed Filter for Indian exchanges
+            // Valid codes often seen: 'NSI' (NSE), 'BSE', 'BOM', 'NSE'
+            const validExchanges = ['NSI', 'NSE', 'BSE', 'BOM', 'N.S.', 'B.O.'];
+
+            const filteredQuotes = result.quotes.filter((q: any) => {
+                if (!q.symbol) return false;
+
+                const exchange = q.exchange ? q.exchange.toUpperCase() : '';
+                const symbol = q.symbol.toUpperCase();
+
+                // 1. Direct Exchange Match
+                if (validExchanges.includes(exchange) || exchange.includes('INDIA')) return true;
+
+                // 2. Suffix Match (.NS, .BO)
+                if (symbol.endsWith('.NS') || symbol.endsWith('.BO')) return true;
+
+                return false;
             });
+
+            this.logger.log(`Raw items: ${result.quotes.length}, After Filter: ${filteredQuotes.length}`);
+
+            if (filteredQuotes.length === 0 && result.quotes.length > 0) {
+                this.logger.warn(`Strict filter killed all. Fallback to raw list.`);
+                // Fallback: If strict filter fails, just return strict region 'IN' results directly 
+                return result.quotes.slice(0, count);
+            }
 
             // 3. Enrich with Market Cap & Fundamentals (if missing in screener result)
             // Note: Screener result HAS marketCap, but often lacks ROE, Debt, Sales Growth.
@@ -78,7 +97,7 @@ export class ScreenerService {
             const SMALL_CAP_THRESHOLD = 5000 * 10000000;
 
             if (marketCapCategory !== 'all') {
-                quotes = quotes.filter((q: any) => {
+                filteredQuotes = filteredQuotes.filter((q: any) => {
                     const mc = q.marketCap || 0;
                     if (marketCapCategory === 'large') return mc >= LARGE_CAP_THRESHOLD;
                     if (marketCapCategory === 'mid') return mc >= SMALL_CAP_THRESHOLD && mc < LARGE_CAP_THRESHOLD;
@@ -88,7 +107,7 @@ export class ScreenerService {
             }
 
             // Slice to requested count *before* fetching heavy details to save time
-            const quotesToEnrich = quotes.slice(0, count);
+            const quotesToEnrich = filteredQuotes.slice(0, count);
 
             // 4. Parallel Enrich (Queue or Batch)
             // We need: PE, ROE, ROCE (approx), Sales Growth, Profit Growth, Debt
