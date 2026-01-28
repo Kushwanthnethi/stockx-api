@@ -6,7 +6,15 @@ export class ScreenerController {
     constructor(private readonly screenerService: ScreenerService) { }
 
     @Get()
-    async getScreener(@Query('type') type: string = 'gainers') {
-        return this.screenerService.getScreenerData(type);
+    async getScreener(
+        @Query('type') type: string = 'gainers',
+        @Query('cap') cap: string = 'all',
+        @Query('count') count: string = '20'
+    ) {
+        return this.screenerService.getScreenerData({
+            type: type as any,
+            marketCapCategory: cap as any,
+            count: parseInt(count, 10)
+        });
     }
 }
