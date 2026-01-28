@@ -61,7 +61,7 @@ export class ScreenerService {
             // Valid codes often seen: 'NSI' (NSE), 'BSE', 'BOM', 'NSE'
             const validExchanges = ['NSI', 'NSE', 'BSE', 'BOM', 'N.S.', 'B.O.'];
 
-            const filteredQuotes = result.quotes.filter((q: any) => {
+            let filteredQuotes = result.quotes.filter((q: any) => {
                 if (!q.symbol) return false;
 
                 const exchange = q.exchange ? q.exchange.toUpperCase() : '';
