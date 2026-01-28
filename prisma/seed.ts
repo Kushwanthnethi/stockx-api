@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { NIFTY_100 } from '../src/stocks/market-data';
+import { NIFTY_500 } from '../src/stocks/market-data';
 import { seedInvestors } from './seed-investors';
 import * as bcrypt from 'bcrypt';
 
@@ -78,9 +78,9 @@ async function main() {
     });
 
     // Create Stocks
-    // Seed Nifty 100 Stocks
-    console.log('Seeding Nifty 100 stocks...');
-    for (const stock of NIFTY_100) {
+    // Seed Nifty 500+ Stocks
+    console.log('Seeding Nifty 500+ stocks...');
+    for (const stock of NIFTY_500) {
         await prisma.stock.upsert({
             where: { symbol: stock.symbol },
             update: {}, // Don't overwrite if exists
@@ -94,7 +94,7 @@ async function main() {
             },
         });
     }
-    console.log('Stocks seeded.');
+    console.log(`Stocks seeded: ${NIFTY_500.length} stocks processed.`);
 
     // Seed Indices (NIFTY 50 & SENSEX) - Critical for Home Page Ticker
     console.log('Seeding Indices...');
