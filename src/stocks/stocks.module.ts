@@ -4,12 +4,14 @@ import { StocksController } from './stocks.controller';
 import { StockOfTheWeekService } from './stock-of-the-week.service';
 import { StockOfTheWeekController } from './stock-of-the-week.controller';
 import { PrismaModule } from '../prisma/prisma.module';
+import { VerdictsService } from './verdicts.service';
+import { VerdictsController } from './verdicts.controller';
+import { AIConfigService } from './ai-config.service';
 
 @Module({
   imports: [PrismaModule],
-  controllers: [StocksController, StockOfTheWeekController],
-  providers: [StocksService, StockOfTheWeekService],
-  exports: [StocksService],
+  controllers: [StocksController, StockOfTheWeekController, VerdictsController],
+  providers: [StocksService, StockOfTheWeekService, VerdictsService, AIConfigService],
+  exports: [StocksService, AIConfigService],
 })
 export class StocksModule { }
-

@@ -5,47 +5,20 @@ import { StocksService } from './stocks.service';
 import { Cron } from '@nestjs/schedule';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+import { AIConfigService } from './ai-config.service';
+
 @Injectable()
 export class StockOfTheWeekService implements OnModuleInit {
     private readonly logger = new Logger(StockOfTheWeekService.name);
-    private genAI: GoogleGenerativeAI;
 
     constructor(
         private prisma: PrismaService,
         private stocksService: StocksService,
-    ) {
-        // Robust sanitization: remove whitespace AND quotes (User error common in Env Vars)
-        const rawKey = process.env.GEMINI_API_KEY || "";
-        const apiKey = rawKey.replace(/["']/g, "").trim();
-
-        if (apiKey) {
-            this.genAI = new GoogleGenerativeAI(apiKey);
-            this.logger.log(`AI Initialized with Key: ${apiKey.substring(0, 5)}... (Length: ${apiKey.length})`);
-        } else {
-            this.logger.warn('GEMINI_API_KEY not found. AI features will be disabled.');
-        }
-    }
+        private aiConfig: AIConfigService
+    ) { }
 
     async onModuleInit() {
-        const apiKey = process.env.GEMINI_API_KEY?.trim();
-        if (apiKey) {
-            const masked = apiKey.length > 8 ? apiKey.substring(0, 8) + '...' : '***';
-            this.logger.log(`Using API Key starting with: ${masked}`);
-        }
-
-        // Debug: List available models to verify connectivity and key permissions
-        if (this.genAI) {
-            try {
-                const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-                const result = await model.generateContent("Test");
-                await result.response;
-                this.logger.log("✅ Startup AI Verification Passed: gemini-2.5-flash is accessible.");
-            } catch (e: any) {
-                this.logger.error(`❌ Startup AI Verification Failed: ${e.message}`);
-                // Try to infer issue
-                if (e.message.includes("404")) this.logger.error("-> Hint: Project API not enabled. Go to https://aistudio.google.com/app/apikey to ensure you have the right key type.");
-            }
-        }
+        this.logger.log(`AI Ready: ${this.aiConfig.activeKeyCount} keys active.`);
 
         // Auto-seed on startup if empty
         const latest = await this.prisma.stockOfTheWeek.findFirst({
@@ -114,7 +87,7 @@ export class StockOfTheWeekService implements OnModuleInit {
             let finalNarrative;
             let finalScore;
 
-            if (this.genAI) {
+            if (!this.aiConfig.isAllExhausted) {
                 const decision = await this.decideWinnerWithAI(finalists);
                 if (decision) {
                     winningPick = finalists.find(f => f.symbol === decision.symbol) || finalists[0];
@@ -193,8 +166,8 @@ export class StockOfTheWeekService implements OnModuleInit {
         return Math.min(Math.floor(score), 99);
     }
 
-    private async decideWinnerWithAI(finalists: any[]): Promise<{ symbol: string, narrative: string, score: number } | null> {
-        this.logger.log("Gathering news for finalists...");
+    private async decideWinnerWithAI(finalists: any[], retryCount = 0): Promise<{ symbol: string, narrative: string, score: number } | null> {
+        this.logger.log(`Gathering news for finalists...${retryCount > 0 ? ' (Retry ' + retryCount + ')' : ''}`);
 
         // Fetch news for all 5 in parallel
         const enrichedFinalists = await Promise.all(finalists.map(async (f) => {
@@ -243,13 +216,19 @@ export class StockOfTheWeekService implements OnModuleInit {
         `;
 
         try {
-            const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash", generationConfig: { responseMimeType: "application/json" } });
+            const model = this.aiConfig.getModel({
+                model: "gemini-2.0-flash"
+            });
+
+            if (!model) return null;
+
             const result = await model.generateContent(prompt);
             const responseText = result.response.text();
 
             this.logger.log(`AI Response: ${responseText.substring(0, 100)}...`);
 
-            const data = JSON.parse(responseText);
+            const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+            const data = JSON.parse(cleanJson);
 
             // Validate symbol exists in our list (handle potential AI hallucination of symbol format)
             const matchedStats = finalists.find(f => f.symbol === data.winner_symbol || f.symbol.split('.')[0] === data.winner_symbol.split('.')[0]);
@@ -263,8 +242,29 @@ export class StockOfTheWeekService implements OnModuleInit {
             }
             return null;
 
-        } catch (e) {
-            this.logger.error("AI Decision Making Error", e);
+        } catch (e: any) {
+            if (e.message?.includes('429') || e.message?.includes('quota')) {
+                let delaySeconds = 60;
+                try {
+                    const retryInfo = e.errorDetails?.find((d: any) => d.details?.some((inner: any) => inner.retryDelay));
+                    const detail = retryInfo?.details?.find((inner: any) => inner.retryDelay);
+                    if (detail?.retryDelay) {
+                        const match = detail.retryDelay.match(/(\d+)s/);
+                        if (match) delaySeconds = parseInt(match[1]) + 5;
+                    }
+                } catch (err) { }
+
+                this.aiConfig.handleQuotaExceeded(delaySeconds);
+
+                // RETRY LOGIC: Try one more time with the new key after a small backoff
+                if (retryCount < 1 && !this.aiConfig.isAllExhausted) {
+                    this.logger.log("Quota hit during selection. Key rotated. Retrying in 5s...");
+                    await this.aiConfig.delay(5000);
+                    return this.decideWinnerWithAI(finalists, retryCount + 1);
+                }
+            } else {
+                this.logger.error("AI Decision Making Error", e);
+            }
             return null;
         }
     }

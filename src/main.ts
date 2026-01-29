@@ -6,6 +6,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000',
+      'http://localhost:3001',
       'https://stockx-web.vercel.app',
       'https://www.stocksx.info',
       'https://stocksx.info',

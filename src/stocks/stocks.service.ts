@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { calculateTechnicalSignals, generateSyntheticRationale } from './utils/tech-analysis.util';
 
 @Injectable()
 export class StocksService {
@@ -17,7 +18,22 @@ export class StocksService {
       const YahooFinanceClass = pkg.default || pkg;
 
       if (typeof YahooFinanceClass === 'function') {
+        const config = {
+          validation: { logErrors: false },
+          suppressNotices: ['yahooSurvey']
+        };
+
+        // Set on class if static method exists
+        if ((YahooFinanceClass as any).setGlobalConfig) {
+          (YahooFinanceClass as any).setGlobalConfig(config);
+        }
+
         this.yahooFinance = new YahooFinanceClass();
+
+        // Also set on instance just in case
+        if (this.yahooFinance.setGlobalConfig) {
+          this.yahooFinance.setGlobalConfig(config);
+        }
       } else {
         // Fallback if it's already an instance or different shape
         this.yahooFinance = YahooFinanceClass;
@@ -88,7 +104,9 @@ export class StocksService {
           } catch (e: any) {
             console.log('quoteSummary failed/validated, trying quote() fallback for', querySymbol);
             try {
-              const simpleQuote = await yahooFinance.quote(querySymbol);
+              let simpleQuote = await yahooFinance.quote(querySymbol);
+              if (Array.isArray(simpleQuote)) simpleQuote = simpleQuote[0];
+              if (!simpleQuote) throw new Error('Quote returned empty');
               result = {
                 price: {
                   regularMarketPrice: simpleQuote.regularMarketPrice,
@@ -284,7 +302,7 @@ export class StocksService {
       // NIFTY 50
       'RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'ICICIBANK.NS', 'INFY.NS', 'BHARTIARTL.NS',
       'ITC.NS', 'SBIN.NS', 'LICI.NS', 'HINDUNILVR.NS', 'LT.NS', 'BAJFINANCE.NS',
-      'HCLTECH.NS', 'MARUTI.NS', 'SUNPHARMA.NS', 'ADANIENT.NS', 'TITAN.NS', 'TATAMOTORS.NS',
+      'HCLTECH.NS', 'MARUTI.NS', 'SUNPHARMA.NS', 'ADANIENT.NS', 'TITAN.NS',
       'ONGC.NS', 'AXISBANK.NS', 'NTPC.NS', 'ULTRACEMCO.NS', 'POWERGRID.NS', 'KOTAKBANK.NS',
       'M&M.NS', 'WIPRO.NS', 'COALINDIA.NS', 'BAJAJ-AUTO.NS', 'ADANIPORTS.NS', 'ASIANPAINT.NS',
       'NESTLEIND.NS', 'JSWSTEEL.NS', 'GRASIM.NS', 'TATASTEEL.NS', 'TECHM.NS', 'SBILIFE.NS',
@@ -382,7 +400,7 @@ export class StocksService {
       }
 
       const res = await yahooFinance.quoteSummary(querySymbol, {
-        modules: ['earnings', 'financialData', 'defaultKeyStatistics', 'price', 'summaryDetail', 'summaryProfile']
+        modules: ['earnings', 'financialData', 'defaultKeyStatistics', 'price', 'summaryDetail', 'summaryProfile', 'recommendationTrend']
       });
 
       // Fetch related news
@@ -469,6 +487,10 @@ export class StocksService {
         // Add News for context
         news: newsItems,
 
+        // Add analyst recommendations
+        recommendations: res.recommendationTrend?.trend?.[0] || null,
+        recommendationMean: res.financialData?.recommendationMean || null,
+
         // MERGED: Quarterly Analysis (QoQ, YoY)
         quarterly: await this.getQuarterlyResults(symbol).catch(e => null)
       };
@@ -490,12 +512,12 @@ export class StocksService {
       }
 
       const res = await yahooFinance.quoteSummary(querySymbol, {
-        modules: ['earnings', 'incomeStatementHistoryQuarterly', 'financialData', 'price']
+        modules: ['earnings', 'financialData', 'price']
       });
 
       const earningsFn = res.earnings?.financialsChart?.quarterly || [];
       const earningsEps = res.earnings?.earningsChart?.quarterly || [];
-      const incomeStatement = res.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+      const incomeStatement: any[] = []; // Submodule deprecated by Yahoo, using financialsChart instead
 
       // Sort Earnings Oldest to Newest (standard), verify and reverse for processing
       const sortedEarningsFn = [...earningsFn];
@@ -708,9 +730,7 @@ export class StocksService {
   }
   async getMarketNews() {
     try {
-      const pkg = await import('yahoo-finance2');
-      const YahooFinance = pkg.default as any;
-      const yahooFinance = new YahooFinance();
+      const yahooFinance = await this.getYahooClient();
 
       const queries = ['India Stock Market', 'Nifty 50', 'Sensex', 'Indian Economy'];
       const requests = queries.map(q => yahooFinance.search(q, { newsCount: 10 }));
@@ -733,9 +753,7 @@ export class StocksService {
 
   async getStockNews(symbol: string) {
     try {
-      const pkg = await import('yahoo-finance2');
-      const YahooFinance = pkg.default as any;
-      const yahooFinance = new YahooFinance();
+      const yahooFinance = await this.getYahooClient();
 
       let query = symbol;
       // Improve search relevance for Indian stocks
@@ -838,7 +856,7 @@ export class StocksService {
     }
   }
   async getTrending() {
-    const symbols = ['RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'INFY.NS', 'TATAMOTORS.NS'];
+    const symbols = ['RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'INFY.NS'];
     try {
       const yahooFinance = await this.getYahooClient();
 
@@ -1090,5 +1108,34 @@ export class StocksService {
     }
 
     return watchlist;
+  }
+
+  async getTechnicalAnalysis(symbol: string) {
+    try {
+      const yahooFinance = await this.getYahooClient();
+      const lookupSymbol = symbol.includes('.') || symbol.startsWith('^') ? symbol : `${symbol}.NS`;
+
+      const queryOptions = {
+        period1: Math.floor((Date.now() - 35 * 24 * 60 * 60 * 1000) / 1000), // 35 days for RSI/SMA
+        interval: '1d' as any,
+      };
+
+      const result = await yahooFinance.chart(lookupSymbol, queryOptions);
+      const quotes = result.quotes || [];
+      const closePrices = quotes.map((q: any) => q.close).filter((p: any) => p != null);
+
+      const signals = calculateTechnicalSignals(closePrices);
+      return {
+        ...signals,
+        syntheticRationale: generateSyntheticRationale(signals, symbol)
+      };
+    } catch (e) {
+      console.error(`Technical Analysis failed for ${symbol}`, e);
+      const signals = calculateTechnicalSignals([]);
+      return {
+        ...signals,
+        syntheticRationale: generateSyntheticRationale(signals, symbol)
+      };
+    }
   }
 }

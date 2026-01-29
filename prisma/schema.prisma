@@ -90,14 +90,34 @@ model Stock {
   quickRatio       Float?  @map("quick_ratio")
 
   lastUpdated   DateTime @default(now()) @map("last_updated")
+  
+  // New Flag for Verdicts
+  isNifty50     Boolean  @default(false) @map("is_nifty_50")
 
   posts       PostStock[]
   investorStocks InvestorStock[]
   watchedBy   Watchlist[]
   stockOfTheWeeks StockOfTheWeek[]
+  verdicts    StockVerdict[]
 
 
   @@map("stocks")
+}
+
+model StockVerdict {
+  id          String   @id @default(uuid())
+  stockSymbol String   @map("stock_symbol")
+  verdict     String   // "BUY", "SELL", "HOLD"
+  confidence  Int      // 0-100
+  rationale   String   // AI Generated markdown
+  
+  generatedAt DateTime @default(now()) @map("generated_at")
+  validUntil  DateTime? @map("valid_until") 
+
+  stock       Stock    @relation(fields: [stockSymbol], references: [symbol])
+
+  @@index([stockSymbol])
+  @@map("stock_verdicts")
 }
 
 // ... existing Post model ...
