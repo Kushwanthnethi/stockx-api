@@ -80,19 +80,35 @@ async function main() {
     // Create Stocks
     // Seed Nifty 500+ Stocks
     console.log('Seeding Nifty 500+ stocks...');
-    for (const stock of NIFTY_500) {
-        await prisma.stock.upsert({
-            where: { symbol: stock.symbol },
-            update: {}, // Don't overwrite if exists
-            create: {
-                symbol: stock.symbol,
-                companyName: stock.companyName,
-                exchange: 'NSE',
-                currentPrice: 0,
-                changePercent: 0,
-                marketCap: 0,
-            },
-        });
+    // Seed Nifty 500+ Stocks
+    console.log(`Seeding Nifty 500+ stocks (Total: ${NIFTY_500.length})...`);
+
+    const BATCH_SIZE = 70;
+    let processedCount = 0;
+
+    for (let i = 0; i < NIFTY_500.length; i += BATCH_SIZE) {
+        const batch = NIFTY_500.slice(i, i + BATCH_SIZE);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(NIFTY_500.length / BATCH_SIZE);
+
+        console.log(`[Phase ${batchNumber}/${totalBatches}] Processing stocks ${i + 1} to ${Math.min(i + BATCH_SIZE, NIFTY_500.length)}...`);
+
+        for (const stock of batch) {
+            await prisma.stock.upsert({
+                where: { symbol: stock.symbol },
+                update: {}, // Don't overwrite if exists
+                create: {
+                    symbol: stock.symbol,
+                    companyName: stock.companyName,
+                    exchange: 'NSE',
+                    currentPrice: 0,
+                    changePercent: 0,
+                    marketCap: 0,
+                },
+            });
+        }
+        processedCount += batch.length;
+        // Optional: Add a small delay if needed to be even gentler to the DB, but 70 is small enough for Neon.
     }
     console.log(`Stocks seeded: ${NIFTY_500.length} stocks processed.`);
 
