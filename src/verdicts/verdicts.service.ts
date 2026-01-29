@@ -63,18 +63,17 @@ export class VerdictsService implements OnModuleInit {
             // 1. Select Universe
             let stocks = [];
             if (category === 'LARGE_CAP') {
-                // Top 20 by Market Cap
+                // Top 50 by Market Cap (Nifty 50 proxy)
                 stocks = await this.prisma.stock.findMany({
                     orderBy: { marketCap: 'desc' },
-                    take: 20
+                    take: 50
                 });
             } else {
-                // Mid Caps (Approx Rank 50-150)
-                // Since we don't have rank, we skip 50 and take 30
+                // Mid Caps (Next 100, approx Nifty Midcap 100)
                 stocks = await this.prisma.stock.findMany({
                     orderBy: { marketCap: 'desc' },
                     skip: 50,
-                    take: 30
+                    take: 100
                 });
             }
 
