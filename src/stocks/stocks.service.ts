@@ -18,7 +18,7 @@ export class StocksService {
 
       if (typeof YahooFinanceClass === 'function') {
         this.yahooFinance = new YahooFinanceClass({
-          validation: { logErrors: true } // Enable logging to see why it fails
+          validation: false as any
         });
       } else {
         // Fallback if it's already an instance or different shape
@@ -85,16 +85,62 @@ export class StocksService {
           : ['price', 'summaryDetail', 'defaultKeyStatistics', 'financialData', 'summaryProfile'];
 
         if (hasSuffix) {
-          result = await yahooFinance.quoteSummary(querySymbol, { modules }) as any;
+          try {
+            result = await yahooFinance.quoteSummary(querySymbol, { modules }) as any;
+          } catch (e: any) {
+            console.log('quoteSummary failed/validated, trying quote() fallback for', querySymbol);
+            try {
+              const simpleQuote = await yahooFinance.quote(querySymbol);
+              result = {
+                price: {
+                  regularMarketPrice: simpleQuote.regularMarketPrice,
+                  regularMarketPreviousClose: simpleQuote.regularMarketPreviousClose,
+                  regularMarketChangePercent: simpleQuote.regularMarketChangePercent ? simpleQuote.regularMarketChangePercent / 100 : 0,
+                  shortName: simpleQuote.shortName,
+                  exchangeName: simpleQuote.exchange,
+                  currency: simpleQuote.currency
+                },
+                summaryDetail: {
+                  marketCap: simpleQuote.marketCap,
+                  fiftyTwoWeekHigh: simpleQuote.fiftyTwoWeekHigh,
+                  fiftyTwoWeekLow: simpleQuote.fiftyTwoWeekLow,
+                  trailingPE: simpleQuote.trailingPE,
+                  dividendYield: simpleQuote.dividendYield
+                },
+                defaultKeyStatistics: {
+                  priceToBook: simpleQuote.priceToBook
+                },
+                financialData: {},
+                summaryProfile: {}
+              };
+            } catch (qError) {
+              console.error('quote() fallback also failed', qError);
+              // Last resort: partial result from original error if available
+              if (e.result) result = e.result;
+              else throw e;
+            }
+          }
         } else {
           // Try NSE first
           try {
             result = await yahooFinance.quoteSummary(`${querySymbol}.NS`, { modules }) as any;
-          } catch (e) {
-            console.log(`NSE fetch failed for ${querySymbol}, trying BSE...`);
-            // Try BSE
-            // Try BSE
-            result = await yahooFinance.quoteSummary(`${querySymbol}.BO`, { modules }) as any;
+          } catch (e: any) {
+            if (e.result) {
+              console.warn(`Validation error for ${querySymbol}.NS, using partial result.`);
+              result = e.result;
+            } else {
+              console.log(`NSE fetch failed for ${querySymbol}, trying BSE...`);
+              // Try BSE
+              try {
+                result = await yahooFinance.quoteSummary(`${querySymbol}.BO`, { modules }) as any;
+              } catch (e2: any) {
+                if (e2.result) {
+                  result = e2.result;
+                } else {
+                  throw e2;
+                }
+              }
+            }
           }
         }
 
@@ -160,6 +206,7 @@ export class StocksService {
           lastUpdated: new Date()
         };
 
+        console.log(`Upserting ${symbol} with price: ${effectivePrice}`);
         const updatedStock = await this.prisma.stock.upsert({
           where: { symbol },
           update: dataToUpdate,
