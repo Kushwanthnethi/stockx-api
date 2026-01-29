@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { NIFTY_500 } from '../src/stocks/market-data';
+import { ADDITIONAL_STOCKS } from '../src/stocks/extended-market-data';
 import { seedInvestors } from './seed-investors';
 import * as bcrypt from 'bcrypt';
 
@@ -79,19 +80,22 @@ async function main() {
 
     // Create Stocks
     // Seed Nifty 500+ Stocks
-    console.log('Seeding Nifty 500+ stocks...');
     // Seed Nifty 500+ Stocks
-    console.log(`Seeding Nifty 500+ stocks (Total: ${NIFTY_500.length})...`);
+    const allStocks = [...NIFTY_500, ...ADDITIONAL_STOCKS];
+    // Remove duplicates based on symbol
+    const uniqueStocks = Array.from(new Map(allStocks.map(item => [item.symbol, item])).values());
+
+    console.log(`Seeding expanded stock list (Total: ${uniqueStocks.length})...`);
 
     const BATCH_SIZE = 70;
     let processedCount = 0;
 
-    for (let i = 0; i < NIFTY_500.length; i += BATCH_SIZE) {
-        const batch = NIFTY_500.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < uniqueStocks.length; i += BATCH_SIZE) {
+        const batch = uniqueStocks.slice(i, i + BATCH_SIZE);
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(NIFTY_500.length / BATCH_SIZE);
+        const totalBatches = Math.ceil(uniqueStocks.length / BATCH_SIZE);
 
-        console.log(`[Phase ${batchNumber}/${totalBatches}] Processing stocks ${i + 1} to ${Math.min(i + BATCH_SIZE, NIFTY_500.length)}...`);
+        console.log(`[Phase ${batchNumber}/${totalBatches}] Processing stocks ${i + 1} to ${Math.min(i + BATCH_SIZE, uniqueStocks.length)}...`);
 
         for (const stock of batch) {
             await prisma.stock.upsert({
@@ -110,7 +114,7 @@ async function main() {
         processedCount += batch.length;
         // Optional: Add a small delay if needed to be even gentler to the DB, but 70 is small enough for Neon.
     }
-    console.log(`Stocks seeded: ${NIFTY_500.length} stocks processed.`);
+    console.log(`Stocks seeded: ${uniqueStocks.length} stocks processed.`);
 
     // Seed Indices (NIFTY 50 & SENSEX) - Critical for Home Page Ticker
     console.log('Seeding Indices...');
