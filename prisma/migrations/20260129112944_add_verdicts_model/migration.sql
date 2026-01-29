@@ -1,8 +1,8 @@
 -- AlterTable
-ALTER TABLE "stocks" ADD COLUMN     "is_nifty_50" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "stocks" ADD COLUMN IF NOT EXISTS "is_nifty_50" BOOLEAN NOT NULL DEFAULT false;
 
 -- CreateTable
-CREATE TABLE "stock_verdicts" (
+CREATE TABLE IF NOT EXISTS "stock_verdicts" (
     "id" TEXT NOT NULL,
     "stock_symbol" TEXT NOT NULL,
     "verdict" TEXT NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE "stock_verdicts" (
 );
 
 -- CreateTable
-CREATE TABLE "stock_of_the_week" (
+CREATE TABLE IF NOT EXISTS "stock_of_the_week" (
     "id" TEXT NOT NULL,
     "week_start_date" TIMESTAMP(3) NOT NULL,
     "stock_symbol" TEXT NOT NULL,
@@ -33,13 +33,21 @@ CREATE TABLE "stock_of_the_week" (
 );
 
 -- CreateIndex
-CREATE INDEX "stock_verdicts_stock_symbol_idx" ON "stock_verdicts"("stock_symbol");
+CREATE INDEX IF NOT EXISTS "stock_verdicts_stock_symbol_idx" ON "stock_verdicts"("stock_symbol");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "stock_of_the_week_week_start_date_key" ON "stock_of_the_week"("week_start_date");
+CREATE UNIQUE INDEX IF NOT EXISTS "stock_of_the_week_week_start_date_key" ON "stock_of_the_week"("week_start_date");
 
 -- AddForeignKey
-ALTER TABLE "stock_verdicts" ADD CONSTRAINT "stock_verdicts_stock_symbol_fkey" FOREIGN KEY ("stock_symbol") REFERENCES "stocks"("symbol") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'stock_verdicts_stock_symbol_fkey') THEN
+        ALTER TABLE "stock_verdicts" ADD CONSTRAINT "stock_verdicts_stock_symbol_fkey" FOREIGN KEY ("stock_symbol") REFERENCES "stocks"("symbol") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "stock_of_the_week" ADD CONSTRAINT "stock_of_the_week_stock_symbol_fkey" FOREIGN KEY ("stock_symbol") REFERENCES "stocks"("symbol") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'stock_of_the_week_stock_symbol_fkey') THEN
+        ALTER TABLE "stock_of_the_week" ADD CONSTRAINT "stock_of_the_week_stock_symbol_fkey" FOREIGN KEY ("stock_symbol") REFERENCES "stocks"("symbol") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END $$;
