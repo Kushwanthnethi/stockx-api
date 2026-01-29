@@ -115,7 +115,7 @@ export const NIFTY_500 = [
     { symbol: 'CENTRALBK.NS', companyName: 'Central Bank of India' },
     { symbol: 'IOB.NS', companyName: 'Indian Overseas Bank' },
     { symbol: 'PSB.NS', companyName: 'Punjab & Sind Bank' },
-    { symbol: 'KUB.NS', companyName: 'City Union Bank Ltd.' },
+
     { symbol: 'KARURVYSYA.NS', companyName: 'Karur Vysya Bank Ltd.' },
     { symbol: 'RBLBANK.NS', companyName: 'RBL Bank Ltd.' },
     { symbol: 'JAMNAAUTO.NS', companyName: 'Jamna Auto Industries Ltd.' },
@@ -134,8 +134,8 @@ export const NIFTY_500 = [
     { symbol: 'TATAELXSI.NS', companyName: 'Tata Elxsi Ltd.' },
     { symbol: 'COFORGE.NS', companyName: 'Coforge Ltd.' },
     { symbol: 'MPHASIS.NS', companyName: 'Mphasis Ltd.' },
-    { symbol: 'LTI.NS', companyName: 'Larsen & Toubro Infotech Ltd.' }, // Legacy check needed
-    { symbol: 'MINDTREE.NS', companyName: 'Mindtree Ltd.' }, // Legacy check needed
+
+
     { symbol: 'CYIENT.NS', companyName: 'Cyient Ltd.' },
     { symbol: 'ZENSARTECH.NS', companyName: 'Zensar Technologies Ltd.' },
     { symbol: 'SONATSOFTW.NS', companyName: 'Sonata Software Ltd.' },
@@ -143,13 +143,13 @@ export const NIFTY_500 = [
     { symbol: 'MASTEK.NS', companyName: 'Mastek Ltd.' },
     { symbol: 'TANLA.NS', companyName: 'Tanla Platforms Ltd.' },
     { symbol: 'ROUTE.NS', companyName: 'Route Mobile Ltd.' },
-    { symbol: 'BCOM.NS', companyName: 'Brightcom Group Ltd.' },
+
     { symbol: 'FSL.NS', companyName: 'Firstsource Solutions Ltd.' },
     { symbol: 'HAPPSTMNDS.NS', companyName: 'Happiest Minds Technologies Ltd.' },
     { symbol: 'LATENTVIEW.NS', companyName: 'Latent View Analytics Ltd.' },
     { symbol: 'MAPMYINDIA.NS', companyName: 'C.E. Info Systems Ltd.' },
     { symbol: 'NAZARA.NS', companyName: 'Nazara Technologies Ltd.' },
-    { symbol: 'PBFINTECH.NS', companyName: 'PB Fintech Ltd.' },
+
     { symbol: 'PAYTM.NS', companyName: 'One97 Communications Ltd.' },
     { symbol: 'FSN.NS', companyName: 'FSN E-Commerce Ventures Ltd.' },
     { symbol: 'DELHIVERY.NS', companyName: 'Delhivery Ltd.' },
@@ -172,7 +172,7 @@ export const NIFTY_500 = [
     { symbol: 'NATCOPHARM.NS', companyName: 'Natco Pharma Ltd.' },
     { symbol: 'PFIZER.NS', companyName: 'Pfizer Ltd.' },
     { symbol: 'SANOFI.NS', companyName: 'Sanofi India Ltd.' },
-    { symbol: 'GSK.NS', companyName: 'GlaxoSmithKline Pharmaceuticals Ltd.' },
+
     { symbol: 'ABBOTINDIA.NS', companyName: 'Abbott India Ltd.' },
     { symbol: 'ASTRAZEN.NS', companyName: 'AstraZeneca Pharma India Ltd.' },
     { symbol: 'LALPATHLAB.NS', companyName: 'Dr. Lal PathLabs Ltd.' },
@@ -196,9 +196,9 @@ export const NIFTY_500 = [
     { symbol: 'CEATLTD.NS', companyName: 'CEAT Ltd.' },
     { symbol: 'EXIDEIND.NS', companyName: 'Exide Industries Ltd.' },
     { symbol: 'AMARAJABAT.NS', companyName: 'Amara Raja Energy & Mobility Ltd.' },
-    { symbol: 'SUNCITY.NS', companyName: 'Suncity Ltd' }, // Check symbol
+
     { symbol: 'ENDURANCE.NS', companyName: 'Endurance Technologies Ltd.' },
-    { symbol: 'MINDAIND.NS', companyName: 'Uno Minda Ltd.' },
+
     { symbol: 'SUPRAJIT.NS', companyName: 'Suprajit Engineering Ltd.' },
     { symbol: 'GABRIEL.NS', companyName: 'Gabriel India Ltd.' },
     { symbol: 'CRAFTSMAN.NS', companyName: 'Craftsman Automation Ltd.' },
@@ -228,7 +228,7 @@ export const NIFTY_500 = [
     { symbol: 'DEEPINDS.NS', companyName: 'Deep Industries Ltd.' },
 
     // --- CAPITAL GOODS & INFRASTRUCTURE ---
-    { symbol: 'L&T.NS', companyName: 'Larsen & Toubro Ltd.' }, // Duplicate check: LT.NS above
+
     { symbol: 'HAL.NS', companyName: 'Hindustan Aeronautics Ltd.' },
     { symbol: 'BEL.NS', companyName: 'Bharat Electronics Ltd.' },
     { symbol: 'BDL.NS', companyName: 'Bharat Dynamics Ltd.' },
@@ -243,7 +243,7 @@ export const NIFTY_500 = [
     { symbol: 'TRITURBINE.NS', companyName: 'Triveni Turbine Ltd.' },
     { symbol: 'ELGIEQUIP.NS', companyName: 'Elgi Equipments Ltd.' },
     { symbol: 'KEC.NS', companyName: 'KEC International Ltd.' },
-    { symbol: 'KALPATPOWR.NS', companyName: 'Kalpataru Projects International Ltd.' },
+
     { symbol: 'RVNL.NS', companyName: 'Rail Vikas Nigam Ltd.' },
     { symbol: 'IRCTC.NS', companyName: 'Indian Railway Catering and Tourism Corporation Ltd.' },
     { symbol: 'IRCON.NS', companyName: 'Ircon International Ltd.' },
@@ -268,7 +268,7 @@ export const NIFTY_500 = [
     { symbol: 'DOLLAR.NS', companyName: 'Dollar Industries Ltd.' },
     { symbol: 'GOKEX.NS', companyName: 'Gokaldas Exports Ltd.' },
     { symbol: 'KPRMILL.NS', companyName: 'K.P.R. Mill Ltd.' },
-    { symbol: 'WELSPUNIND.NS', companyName: 'Welspun Living Ltd.' },
+
     { symbol: 'TRIDENT.NS', companyName: 'Trident Ltd.' },
     { symbol: 'RAYMOND.NS', companyName: 'Raymond Ltd.' },
     { symbol: 'ARVIND.NS', companyName: 'Arvind Ltd.' },
@@ -287,17 +287,17 @@ export const NIFTY_500 = [
     { symbol: 'DEVYANI.NS', companyName: 'Devyani International Ltd.' },
     { symbol: 'SAPPHIRE.NS', companyName: 'Sapphire Foods India Ltd.' },
     { symbol: 'WESTLIFE.NS', companyName: 'Westlife Foodworld Ltd.' },
-    { symbol: 'RESTAURANT.NS', companyName: 'Restaurant Brands Asia Ltd.' },
-    { symbol: 'BARBEQUE.NS', companyName: 'Barbeque Nation Hospitality Ltd.' },
+
+
     { symbol: 'DODLA.NS', companyName: 'Dodla Dairy Ltd.' },
     { symbol: 'HERITGFOOD.NS', companyName: 'Heritage Foods Ltd.' },
-    { symbol: 'HATSON.NS', companyName: 'Hatsun Agro Product Ltd.' },
+
     { symbol: 'VADILALIND.NS', companyName: 'Vadilal Industries Ltd.' },
     { symbol: 'TASTYBITE.NS', companyName: 'Tasty Bite Eatables Ltd.' },
-    { symbol: 'ADFZOODS.NS', companyName: 'ADF Foods Ltd.' },
+
     { symbol: 'LTFOODS.NS', companyName: 'LT Foods Ltd.' },
     { symbol: 'KRBL.NS', companyName: 'KRBL Ltd.' },
-    { symbol: 'DAAWAT.NS', companyName: 'LT Foods Ltd' }, // Duplicate check
+
     { symbol: 'CCL.NS', companyName: 'CCL Products (India) Ltd.' },
 
     // --- CHEMICALS & FERTILIZERS ---
@@ -373,8 +373,8 @@ export const NIFTY_500 = [
     { symbol: 'ZEEL.NS', companyName: 'Zee Entertainment Enterprises Ltd.' },
     { symbol: 'PVRINOX.NS', companyName: 'PVR INOX Ltd.' },
     { symbol: 'NETWORK18.NS', companyName: 'Network18 Media & Investments Ltd.' },
-    { symbol: 'TV18BRDCST.NS', companyName: 'TV18 Broadcast Ltd.' },
-    { symbol: 'DBC.NS', companyName: 'D.B. Corp Ltd.' },
+
+
     { symbol: 'JAGRAN.NS', companyName: 'Jagran Prakashan Ltd.' },
 
     // --- MISCELLANEOUS ---
@@ -387,10 +387,10 @@ export const NIFTY_500 = [
     { symbol: 'CONCOR.NS', companyName: 'Container Corporation of India Ltd.' },
     { symbol: 'AEGISCHEM.NS', companyName: 'Aegis Logistics Ltd.' },
     { symbol: 'GSPL.NS', companyName: 'Gujarat State Petronet Ltd.' },
-    { symbol: 'NYKAA.NS', companyName: 'FSN E-Commerce Ventures Ltd. (Nykaa)' }, // Duplicate check: FSN.NS
+
     { symbol: 'ZOMATO.NS', companyName: 'Zomato Ltd.' },
     { symbol: 'PAYTM.NS', companyName: 'Paytm' },
-    { symbol: 'POLICYBZR.NS', companyName: 'PB Fintech' },
+
     { symbol: 'CARTRADE.NS', companyName: 'CarTrade Tech Ltd.' },
     { symbol: 'EASEMYTRIP.NS', companyName: 'Easy Trip Planners Ltd.' },
     { symbol: 'RATEGAIN.NS', companyName: 'RateGain Travel Technologies Ltd.' },

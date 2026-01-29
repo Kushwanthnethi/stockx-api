@@ -95,6 +95,7 @@ model Stock {
   investorStocks InvestorStock[]
   watchedBy   Watchlist[]
   stockOfTheWeeks StockOfTheWeek[]
+  verdicts        StockVerdict[]
 
   @@map("stocks")
 }
@@ -276,4 +277,22 @@ model StockOfTheWeek {
   
   @@unique([weekStartDate]) // Only one pick per week
   @@map("stock_of_the_week")
+}
+
+model StockVerdict {
+  id              String   @id @default(uuid())
+  stockId         String   @map("stock_id")
+  stock           Stock    @relation(fields: [stockId], references: [symbol])
+  verdict         String   // BUY, SELL, HOLD, WAIT
+  convictionScore Int      @map("conviction_score") // 0-100
+  headline        String
+  rationale       String
+  catalyst        String   // e.g. "Q3 Earnings", "New Product"
+  category        String   // LARGE_CAP, MID_CAP
+  
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  
+  @@unique([stockId, category]) // One active verdict per stock per category
+  @@map("stock_verdicts")
 }

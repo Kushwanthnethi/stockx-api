@@ -9,6 +9,7 @@ import { PrismaModule } from '../prisma/prisma.module';
   imports: [PrismaModule],
   controllers: [StocksController, StockOfTheWeekController],
   providers: [StocksService, StockOfTheWeekService],
+  exports: [StocksService],
 })
 export class StocksModule { }
 
