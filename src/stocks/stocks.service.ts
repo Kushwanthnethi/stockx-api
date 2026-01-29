@@ -17,9 +17,7 @@ export class StocksService {
       const YahooFinanceClass = pkg.default || pkg;
 
       if (typeof YahooFinanceClass === 'function') {
-        this.yahooFinance = new YahooFinanceClass({
-          validation: false as any
-        });
+        this.yahooFinance = new YahooFinanceClass();
       } else {
         // Fallback if it's already an instance or different shape
         this.yahooFinance = YahooFinanceClass;
