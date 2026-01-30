@@ -798,63 +798,65 @@ export class StocksService {
             { companyName: { contains: query, mode: 'insensitive' } }
           ]
         },
-        take: 20 // Increase limit to avoid "Industries" noise hiding real matches
+        take: 10,
+        orderBy: { marketCap: 'desc' } // Prioritize bigger companies
       });
 
-      // Sort: Exact/Starts-with first
-      localResults.sort((a, b) => {
-        const aStarts = a.companyName.toLowerCase().startsWith(query.toLowerCase()) || a.symbol.toLowerCase().startsWith(query.toLowerCase());
-        const bStarts = b.companyName.toLowerCase().startsWith(query.toLowerCase()) || b.symbol.toLowerCase().startsWith(query.toLowerCase());
-        if (aStarts && !bStarts) return -1;
-        if (!aStarts && bStarts) return 1;
-        return 0;
-      });
-
-      const formattedLocal = localResults.map(stock => ({
-        symbol: stock.symbol,
-        shortname: stock.companyName, // Map to Yahoo format
-        exchange: stock.exchange,
-        quoteType: 'EQUITY',
-        isYahooFinance: true // Flag to keep it
-      }));
-
-
-      // 2. Search External API (Yahoo Finance) for broader coverage
-      let externalResults: any[] = [];
-      try {
-        const yahooFinance = await this.getYahooClient();
-        const result = await yahooFinance.search(query, { quotesCount: 20, newsCount: 0 });
-
-        externalResults = result.quotes.filter((q: any) =>
-          (q.quoteType === 'EQUITY' || q.quoteType === 'ETF' || q.quoteType === 'INDEX') &&
-          (
-            ['NSI', 'NSE', 'BSE', 'BOM'].includes(q.exchange) ||
-            (q.symbol && (q.symbol.endsWith('.NS') || q.symbol.endsWith('.BO')))
-          )
-        );
-      } catch (extError) {
-        console.error('External search failed, proceeding with local results:', extError);
-        // Continue with empty externalResults
+      // If we have enough local results, return them (especially for short queries)
+      if (localResults.length >= 5) {
+        return localResults;
       }
 
-      // 3. Merge & Deduplicate (Prioritize Local)
-      const seen = new Set(formattedLocal.map(s => s.symbol));
-      const merged = [...formattedLocal];
+      // 2. Fallback/Augment with Yahoo Finance Search
+      // Only if query length > 1 to avoid spamming "A", "B", "C"
+      if (query.length >= 2) {
+        const yahooFinance = await this.getYahooClient();
+        console.log(`Searching Yahoo for: ${query}`);
 
-      for (const ext of externalResults) {
-        if (!seen.has(ext.symbol)) {
-          merged.push(ext);
-          seen.add(ext.symbol);
+        try {
+          const remoteRes = await yahooFinance.search(query, {
+            newsCount: 0,
+            quotesCount: 10
+          });
+
+          if (remoteRes.quotes && remoteRes.quotes.length > 0) {
+            // Filter for Indian stocks ONLY (.NS or .BO)
+            const indianStocks = remoteRes.quotes.filter((q: any) =>
+              (q.symbol.endsWith('.NS') || q.symbol.endsWith('.BO')) &&
+              q.isYahooFinance !== true // Filter out non-tradable entities if needed
+            );
+
+            // Map to our format
+            const remoteStocks = indianStocks.map((q: any) => ({
+              symbol: q.symbol,
+              companyName: q.shortname || q.longname || q.symbol,
+              currentPrice: 0, // Placeholder
+              exchange: q.exchange,
+              lastUpdated: new Date(0) // Old date to force refresh if viewed
+            }));
+
+            // Merge: Local first, then Remote (excluding duplicates)
+            const seen = new Set(localResults.map(s => s.symbol));
+            for (const rs of remoteStocks) {
+              if (!seen.has(rs.symbol)) {
+                localResults.push(rs as any);
+                seen.add(rs.symbol);
+              }
+            }
+          }
+        } catch (yError) {
+          console.error(`Yahoo search failed for ${query}`, yError);
         }
       }
 
-      return merged.slice(0, 10);
+      return localResults;
 
     } catch (error) {
-      console.error('Search failed:', error);
+      console.error(`Search failed for ${query}`, error);
       return [];
     }
   }
+
   async getTrending() {
     const symbols = ['RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'INFY.NS'];
     try {
