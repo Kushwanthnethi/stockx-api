@@ -666,21 +666,37 @@ export class StocksService {
 
         console.log(`Refreshing ${symbolsToFetch.length} stocks...`);
 
-        // 3. Fetch live data for stale stocks
-        const promises = symbolsToFetch.map(symbol => {
-          let querySymbol = symbol;
-          if (symbol === 'NIFTY 50') querySymbol = '^NSEI';
-          if (symbol === 'SENSEX') querySymbol = '^BSESN';
+        const results = [];
+        const chunkSize = 5; // Reduced concurrency to avoid 429 errors
+        const delayBetweenChunks = 2000; // 2 seconds delay
 
-          return yahooFinance.quoteSummary(querySymbol.includes('.') || querySymbol.startsWith('^') ? querySymbol : `${querySymbol}.NS`, {
-            modules: ['price', 'summaryDetail', 'defaultKeyStatistics', 'financialData']
-          }).then((res: any) => ({ ...res, originalSymbol: symbol })).catch((e: any) => {
-            console.error(`Failed to refresh ${symbol}`, e.message);
-            return null;
+        for (let i = 0; i < symbolsToFetch.length; i += chunkSize) {
+          const chunk = symbolsToFetch.slice(i, i + chunkSize);
+          console.log(`Processing chunk ${Math.ceil((i + 1) / chunkSize)}/${Math.ceil(symbolsToFetch.length / chunkSize)}`);
+
+          const chunkPromises = chunk.map(symbol => {
+            let querySymbol = symbol;
+            if (symbol === 'NIFTY 50') querySymbol = '^NSEI';
+            if (symbol === 'SENSEX') querySymbol = '^BSESN';
+
+            return yahooFinance.quoteSummary(querySymbol.includes('.') || querySymbol.startsWith('^') ? querySymbol : `${querySymbol}.NS`, {
+              modules: ['price', 'summaryDetail', 'defaultKeyStatistics', 'financialData']
+            })
+              .then((res: any) => ({ ...res, originalSymbol: symbol }))
+              .catch((e: any) => {
+                console.error(`Failed to refresh ${symbol} - ${e.message}`);
+                return null;
+              });
           });
-        });
 
-        const results = (await Promise.all(promises)).filter(r => r !== null);
+          const chunkResults = (await Promise.all(chunkPromises)).filter(r => r !== null);
+          results.push(...chunkResults);
+
+          // Wait before next chunk if not the last one
+          if (i + chunkSize < symbolsToFetch.length) {
+            await new Promise(resolve => setTimeout(resolve, delayBetweenChunks));
+          }
+        }
 
         // 4. Update DB for these results
         for (const data of results) {
