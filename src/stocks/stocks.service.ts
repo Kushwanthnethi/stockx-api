@@ -1,12 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { calculateTechnicalSignals, generateSyntheticRationale } from './utils/tech-analysis.util';
+import {
+  calculateTechnicalSignals,
+  generateSyntheticRationale,
+} from './utils/tech-analysis.util';
 
 @Injectable()
 export class StocksService {
   private yahooFinance: any = null;
 
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   private async getYahooClient() {
     if (this.yahooFinance) return this.yahooFinance;
@@ -20,7 +23,7 @@ export class StocksService {
       if (typeof YahooFinanceClass === 'function') {
         const config = {
           validation: { logErrors: false },
-          suppressNotices: ['yahooSurvey']
+          suppressNotices: ['yahooSurvey'],
         };
 
         // Set on class if static method exists
@@ -47,25 +50,24 @@ export class StocksService {
     return this.yahooFinance;
   }
 
-
   async findOne(symbol: string) {
     // Alias for branded name "Eternal" -> "ZOMATO.NS"
     if (symbol === 'ETERNAL') symbol = 'ZOMATO.NS';
 
     let stock = await this.prisma.stock.findUnique({
       where: { symbol },
-      include: { investorStocks: { include: { investor: true } } }
+      include: { investorStocks: { include: { investor: true } } },
     });
 
     // If not found and no suffix, try appending .NS (common for Indian stocks)
     if (!stock && !symbol.includes('.') && !symbol.startsWith('^')) {
       const stockNS = await this.prisma.stock.findUnique({
         where: { symbol: `${symbol}.NS` },
-        include: { investorStocks: { include: { investor: true } } }
+        include: { investorStocks: { include: { investor: true } } },
       });
       if (stockNS) {
         stock = stockNS;
-        // Optionally update the original symbol to match found stock? 
+        // Optionally update the original symbol to match found stock?
         // For now, just return the data. The frontend works with what's returned.
         symbol = stock.symbol;
       }
@@ -74,7 +76,11 @@ export class StocksService {
     // Check if data is stale (older than 15 mins)
     const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000); // Fixed to 15 mins
 
-    if (!stock || stock.lastUpdated < fifteenMinutesAgo || stock.currentPrice === 0) {
+    if (
+      !stock ||
+      stock.lastUpdated < fifteenMinutesAgo ||
+      stock.currentPrice === 0
+    ) {
       try {
         console.log(`Fetching live data for ${symbol}...`);
 
@@ -90,19 +96,31 @@ export class StocksService {
         let result;
 
         // Logic to handle suffixes or default to NSE, then BSE
-        const hasSuffix = querySymbol.includes('.') || querySymbol.startsWith('^');
+        const hasSuffix =
+          querySymbol.includes('.') || querySymbol.startsWith('^');
 
         // Indices (starting with ^) often lack financial data/stats, so we request fewer modules
         const isIndex = querySymbol.startsWith('^');
         const modules = isIndex
           ? ['price', 'summaryDetail']
-          : ['price', 'summaryDetail', 'defaultKeyStatistics', 'financialData', 'summaryProfile'];
+          : [
+              'price',
+              'summaryDetail',
+              'defaultKeyStatistics',
+              'financialData',
+              'summaryProfile',
+            ];
 
         if (hasSuffix) {
           try {
-            result = await yahooFinance.quoteSummary(querySymbol, { modules }) as any;
+            result = await yahooFinance.quoteSummary(querySymbol, {
+              modules,
+            });
           } catch (e: any) {
-            console.log('quoteSummary failed/validated, trying quote() fallback for', querySymbol);
+            console.log(
+              'quoteSummary failed/validated, trying quote() fallback for',
+              querySymbol,
+            );
             try {
               let simpleQuote = await yahooFinance.quote(querySymbol);
               if (Array.isArray(simpleQuote)) simpleQuote = simpleQuote[0];
@@ -110,24 +128,28 @@ export class StocksService {
               result = {
                 price: {
                   regularMarketPrice: simpleQuote.regularMarketPrice,
-                  regularMarketPreviousClose: simpleQuote.regularMarketPreviousClose,
-                  regularMarketChangePercent: simpleQuote.regularMarketChangePercent ? simpleQuote.regularMarketChangePercent / 100 : 0,
+                  regularMarketPreviousClose:
+                    simpleQuote.regularMarketPreviousClose,
+                  regularMarketChangePercent:
+                    simpleQuote.regularMarketChangePercent
+                      ? simpleQuote.regularMarketChangePercent / 100
+                      : 0,
                   shortName: simpleQuote.shortName,
                   exchangeName: simpleQuote.exchange,
-                  currency: simpleQuote.currency
+                  currency: simpleQuote.currency,
                 },
                 summaryDetail: {
                   marketCap: simpleQuote.marketCap,
                   fiftyTwoWeekHigh: simpleQuote.fiftyTwoWeekHigh,
                   fiftyTwoWeekLow: simpleQuote.fiftyTwoWeekLow,
                   trailingPE: simpleQuote.trailingPE,
-                  dividendYield: simpleQuote.dividendYield
+                  dividendYield: simpleQuote.dividendYield,
                 },
                 defaultKeyStatistics: {
-                  priceToBook: simpleQuote.priceToBook
+                  priceToBook: simpleQuote.priceToBook,
                 },
                 financialData: {},
-                summaryProfile: {}
+                summaryProfile: {},
               };
             } catch (qError) {
               console.error('quote() fallback also failed', qError);
@@ -139,16 +161,22 @@ export class StocksService {
         } else {
           // Try NSE first
           try {
-            result = await yahooFinance.quoteSummary(`${querySymbol}.NS`, { modules }) as any;
+            result = await yahooFinance.quoteSummary(`${querySymbol}.NS`, {
+              modules,
+            });
           } catch (e: any) {
             if (e.result) {
-              console.warn(`Validation error for ${querySymbol}.NS, using partial result.`);
+              console.warn(
+                `Validation error for ${querySymbol}.NS, using partial result.`,
+              );
               result = e.result;
             } else {
               console.log(`NSE fetch failed for ${querySymbol}, trying BSE...`);
               // Try BSE
               try {
-                result = await yahooFinance.quoteSummary(`${querySymbol}.BO`, { modules }) as any;
+                result = await yahooFinance.quoteSummary(`${querySymbol}.BO`, {
+                  modules,
+                });
               } catch (e2: any) {
                 if (e2.result) {
                   result = e2.result;
@@ -219,7 +247,7 @@ export class StocksService {
           ebitda: ebitda || 0,
           quickRatio: quickRatio || 0,
 
-          lastUpdated: new Date()
+          lastUpdated: new Date(),
         };
 
         console.log(`Upserting ${symbol} with price: ${effectivePrice}`);
@@ -229,13 +257,14 @@ export class StocksService {
           create: {
             symbol: symbol,
             companyName: result.price?.shortName || symbol,
-            exchange: result.price?.exchangeName || (symbol.includes('.BO') ? 'BSE' : 'NSE'),
-            ...dataToUpdate
+            exchange:
+              result.price?.exchangeName ||
+              (symbol.includes('.BO') ? 'BSE' : 'NSE'),
+            ...dataToUpdate,
           },
-          include: { investorStocks: { include: { investor: true } } }
+          include: { investorStocks: { include: { investor: true } } },
         });
         return updatedStock;
-
       } catch (error) {
         console.error(`Failed to fetch data for ${symbol}:`, error);
 
@@ -245,7 +274,7 @@ export class StocksService {
         if (stock) {
           await this.prisma.stock.update({
             where: { symbol },
-            data: { lastUpdated: new Date() }
+            data: { lastUpdated: new Date() },
           });
           return stock;
         }
@@ -259,18 +288,18 @@ export class StocksService {
     if (!symbols || symbols.length === 0) return [];
 
     // Concurrently fetch/update each symbol using the existing robust findOne logic
-    const promises = symbols.map(symbol => this.findOne(symbol));
+    const promises = symbols.map((symbol) => this.findOne(symbol));
     const results = await Promise.all(promises);
 
     // Filter out nulls/undefined if any
-    return results.filter(s => s !== null && s !== undefined);
+    return results.filter((s) => s !== null && s !== undefined);
   }
 
   async getPeers(symbol: string) {
     const formattedSymbol = symbol.toUpperCase();
     const stock = await this.prisma.stock.findUnique({
       where: { symbol: formattedSymbol },
-      select: { sector: true }
+      select: { sector: true },
     });
 
     if (!stock || !stock.sector) {
@@ -280,10 +309,10 @@ export class StocksService {
     return this.prisma.stock.findMany({
       where: {
         sector: stock.sector,
-        symbol: { not: formattedSymbol }
+        symbol: { not: formattedSymbol },
       },
       take: 4,
-      orderBy: { marketCap: 'desc' }
+      orderBy: { marketCap: 'desc' },
     });
   }
 
@@ -294,26 +323,86 @@ export class StocksService {
   async getEarningsCalendar() {
     // Return cached if fresh (< 6 hours)
     const now = Date.now();
-    if (this.earningsCache && (now - this.lastEarningsFetch < 6 * 60 * 60 * 1000)) {
+    if (
+      this.earningsCache &&
+      now - this.lastEarningsFetch < 6 * 60 * 60 * 1000
+    ) {
       return this.earningsCache;
     }
 
     const popularTickers = [
       // NIFTY 50
-      'RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'ICICIBANK.NS', 'INFY.NS', 'BHARTIARTL.NS',
-      'ITC.NS', 'SBIN.NS', 'LICI.NS', 'HINDUNILVR.NS', 'LT.NS', 'BAJFINANCE.NS',
-      'HCLTECH.NS', 'MARUTI.NS', 'SUNPHARMA.NS', 'ADANIENT.NS', 'TITAN.NS',
-      'ONGC.NS', 'AXISBANK.NS', 'NTPC.NS', 'ULTRACEMCO.NS', 'POWERGRID.NS', 'KOTAKBANK.NS',
-      'M&M.NS', 'WIPRO.NS', 'COALINDIA.NS', 'BAJAJ-AUTO.NS', 'ADANIPORTS.NS', 'ASIANPAINT.NS',
-      'NESTLEIND.NS', 'JSWSTEEL.NS', 'GRASIM.NS', 'TATASTEEL.NS', 'TECHM.NS', 'SBILIFE.NS',
-      'HDFCLIFE.NS', 'BRITANNIA.NS', 'INDUSINDBK.NS', 'CIPLA.NS', 'TATAWCF.NS', 'DIVISLAB.NS',
-      'EICHERMOT.NS', 'BAJAJFINSV.NS', 'BPCL.NS', 'TATACONSUM.NS', 'DRREDDY.NS', 'HEROMOTOCO.NS',
-      'HINDALCO.NS', 'APOLLOHOSP.NS',
+      'RELIANCE.NS',
+      'TCS.NS',
+      'HDFCBANK.NS',
+      'ICICIBANK.NS',
+      'INFY.NS',
+      'BHARTIARTL.NS',
+      'ITC.NS',
+      'SBIN.NS',
+      'LICI.NS',
+      'HINDUNILVR.NS',
+      'LT.NS',
+      'BAJFINANCE.NS',
+      'HCLTECH.NS',
+      'MARUTI.NS',
+      'SUNPHARMA.NS',
+      'ADANIENT.NS',
+      'TITAN.NS',
+      'ONGC.NS',
+      'AXISBANK.NS',
+      'NTPC.NS',
+      'ULTRACEMCO.NS',
+      'POWERGRID.NS',
+      'KOTAKBANK.NS',
+      'M&M.NS',
+      'WIPRO.NS',
+      'COALINDIA.NS',
+      'BAJAJ-AUTO.NS',
+      'ADANIPORTS.NS',
+      'ASIANPAINT.NS',
+      'NESTLEIND.NS',
+      'JSWSTEEL.NS',
+      'GRASIM.NS',
+      'TATASTEEL.NS',
+      'TECHM.NS',
+      'SBILIFE.NS',
+      'HDFCLIFE.NS',
+      'BRITANNIA.NS',
+      'INDUSINDBK.NS',
+      'CIPLA.NS',
+      'TATAWCF.NS',
+      'DIVISLAB.NS',
+      'EICHERMOT.NS',
+      'BAJAJFINSV.NS',
+      'BPCL.NS',
+      'TATACONSUM.NS',
+      'DRREDDY.NS',
+      'HEROMOTOCO.NS',
+      'HINDALCO.NS',
+      'APOLLOHOSP.NS',
 
       // key NEXT 50 / MIDCAPS relevant for retail
-      'ZOMATO.NS', 'DLF.NS', 'HAL.NS', 'JIOFIN.NS', 'TRENT.NS', 'VBL.NS', 'SIEMENS.NS',
-      'BEL.NS', 'IOC.NS', 'PFC.NS', 'REC.NS', 'GAIL.NS', 'CHOLAFIN.NS', 'BANKBARODA.NS',
-      'INDIGO.NS', 'TVSMOTOR.NS', 'HAVELLS.NS', 'ABB.NS', 'GODREJCP.NS', 'AMBUJACEM.NS'
+      'ZOMATO.NS',
+      'DLF.NS',
+      'HAL.NS',
+      'JIOFIN.NS',
+      'TRENT.NS',
+      'VBL.NS',
+      'SIEMENS.NS',
+      'BEL.NS',
+      'IOC.NS',
+      'PFC.NS',
+      'REC.NS',
+      'GAIL.NS',
+      'CHOLAFIN.NS',
+      'BANKBARODA.NS',
+      'INDIGO.NS',
+      'TVSMOTOR.NS',
+      'HAVELLS.NS',
+      'ABB.NS',
+      'GODREJCP.NS',
+      'AMBUJACEM.NS',
     ];
 
     try {
@@ -323,19 +412,29 @@ export class StocksService {
 
       // Process in chunks to avoid rate limits or timeouts
       const chunkSize = 10;
-      let allResults = [];
+      const allResults = [];
 
       for (let i = 0; i < popularTickers.length; i += chunkSize) {
         const chunk = popularTickers.slice(i, i + chunkSize);
         const chunkPromises = chunk.map(async (symbol) => {
           try {
             const res = await yahooFinance.quoteSummary(symbol, {
-              modules: ['calendarEvents', 'price', 'financialData', 'defaultKeyStatistics']
+              modules: [
+                'calendarEvents',
+                'price',
+                'financialData',
+                'defaultKeyStatistics',
+              ],
             });
             const events = res.calendarEvents?.earnings;
-            // Relaxed check: if no specific earnings date, maybe allow if we have past data? 
+            // Relaxed check: if no specific earnings date, maybe allow if we have past data?
             // For now, strict on earningsDate presence for "Calendar" purpose.
-            if (!events || !events.earningsDate || events.earningsDate.length === 0) return null;
+            if (
+              !events ||
+              !events.earningsDate ||
+              events.earningsDate.length === 0
+            )
+              return null;
 
             // Get nearest date
             const date = new Date(events.earningsDate[0]);
@@ -356,7 +455,7 @@ export class StocksService {
               eps: eps || 0,
               revenueGrowth: revenueGrowth || 0,
               // Link to BSE Corporate Filings (Reliable source for original PDFs)
-              pdfUrl: `https://www.bseindia.com/corporates/ann.html?scrip=${symbol.replace('.NS', '').replace('.BO', '')}&duration=Today`
+              pdfUrl: `https://www.bseindia.com/corporates/ann.html?scrip=${symbol.replace('.NS', '').replace('.BO', '')}&duration=Today`,
             };
           } catch (e) {
             return null;
@@ -364,7 +463,7 @@ export class StocksService {
         });
 
         const chunkResults = await Promise.all(chunkPromises);
-        allResults.push(...chunkResults.filter(r => r !== null));
+        allResults.push(...chunkResults.filter((r) => r !== null));
       }
 
       // Sort: Most recent/upcoming first
@@ -373,7 +472,10 @@ export class StocksService {
       today.setHours(0, 0, 0, 0);
 
       allResults.sort((a: any, b: any) => {
-        return Math.abs(a.date.getTime() - today.getTime()) - Math.abs(b.date.getTime() - today.getTime());
+        return (
+          Math.abs(a.date.getTime() - today.getTime()) -
+          Math.abs(b.date.getTime() - today.getTime())
+        );
       });
 
       // Return substantial list (e.g., top 50 relevant by date), or all if needed
@@ -381,9 +483,8 @@ export class StocksService {
       this.earningsCache = allResults;
       this.lastEarningsFetch = now;
       return this.earningsCache;
-
     } catch (e) {
-      console.error("Failed to fetch earnings calendar", e);
+      console.error('Failed to fetch earnings calendar', e);
       return [];
     }
   }
@@ -400,7 +501,15 @@ export class StocksService {
       }
 
       const res = await yahooFinance.quoteSummary(querySymbol, {
-        modules: ['earnings', 'financialData', 'defaultKeyStatistics', 'price', 'summaryDetail', 'summaryProfile', 'recommendationTrend']
+        modules: [
+          'earnings',
+          'financialData',
+          'defaultKeyStatistics',
+          'price',
+          'summaryDetail',
+          'summaryProfile',
+          'recommendationTrend',
+        ],
       });
 
       // Fetch related news
@@ -412,11 +521,13 @@ export class StocksService {
             title: n.title,
             link: n.link,
             publisher: n.publisher,
-            publishedAt: n.providerPublishTime ? new Date(n.providerPublishTime * 1000).toISOString() : new Date().toISOString(),
+            publishedAt: n.providerPublishTime
+              ? new Date(n.providerPublishTime * 1000).toISOString()
+              : new Date().toISOString(),
           }));
         }
       } catch (newsError) {
-        console.error("Failed to fetch news for earnings analysis", newsError);
+        console.error('Failed to fetch news for earnings analysis', newsError);
       }
 
       const history = res.earnings?.earningsChart?.quarterly || [];
@@ -428,7 +539,8 @@ export class StocksService {
       let surprise = 0;
 
       if (latestQtr && latestQtr.actual && latestQtr.estimate) {
-        surprise = ((latestQtr.actual - latestQtr.estimate) / latestQtr.estimate) * 100;
+        surprise =
+          ((latestQtr.actual - latestQtr.estimate) / latestQtr.estimate) * 100;
         if (surprise > 2) verdict = 'BEAT';
         else if (surprise < -2) verdict = 'MISS';
         else verdict = 'MET';
@@ -439,22 +551,24 @@ export class StocksService {
         companyName: res.price?.shortName,
         price: res.price?.regularMarketPrice,
         currency: res.price?.currency,
-        description: res.summaryProfile?.longBusinessSummary, // Note: not in modules above, might need to add if we want desc. 
+        description: res.summaryProfile?.longBusinessSummary, // Note: not in modules above, might need to add if we want desc.
         // Actually 'summaryProfile' module is needed for description. Adding it to modules list below.
 
         verdict,
         surprisePercent: surprise,
 
-        latestQuarter: latestQtr ? {
-          period: latestQtr.date,
-          estimate: latestQtr.estimate,
-          actual: latestQtr.actual
-        } : null,
+        latestQuarter: latestQtr
+          ? {
+              period: latestQtr.date,
+              estimate: latestQtr.estimate,
+              actual: latestQtr.actual,
+            }
+          : null,
 
         history: history.map((h: any) => ({
           period: h.date,
           estimate: h.estimate,
-          actual: h.actual
+          actual: h.actual,
         })),
 
         financials: {
@@ -492,9 +606,8 @@ export class StocksService {
         recommendationMean: res.financialData?.recommendationMean || null,
 
         // MERGED: Quarterly Analysis (QoQ, YoY)
-        quarterly: await this.getQuarterlyResults(symbol).catch(e => null)
+        quarterly: await this.getQuarterlyResults(symbol).catch((e) => null),
       };
-
     } catch (e) {
       console.error(`Failed to fetch earnings details for ${symbol}`, e);
       throw new NotFoundException(`Earnings data for ${symbol} not found`);
@@ -512,7 +625,7 @@ export class StocksService {
       }
 
       const res = await yahooFinance.quoteSummary(querySymbol, {
-        modules: ['earnings', 'financialData', 'price']
+        modules: ['earnings', 'financialData', 'price'],
       });
 
       const earningsFn = res.earnings?.financialsChart?.quarterly || [];
@@ -535,11 +648,11 @@ export class StocksService {
         let netIncome = qFn.earnings;
         let ebitda = null;
         let operatingIncome = null;
-        let eps = qEps?.actual;
+        const eps = qEps?.actual;
 
         // Try to match with IncomeStatement (Newest First)
         // earningsFn[count-1] (Latest) -> incomeStatement[0]
-        const incomeIdx = (count - 1) - i;
+        const incomeIdx = count - 1 - i;
         if (incomeStatement[incomeIdx]) {
           const inc = incomeStatement[incomeIdx];
           if (inc.totalRevenue) revenue = inc.totalRevenue;
@@ -554,29 +667,41 @@ export class StocksService {
           netIncome,
           ebitda,
           operatingIncome,
-          eps
+          eps,
         });
       }
 
       const current = normalizedQuarterly[0];
       const prev = normalizedQuarterly[1];
-      // Yahoo usually gives only 4 quarters. So result is usually [Q4, Q3, Q2, Q1]. 
+      // Yahoo usually gives only 4 quarters. So result is usually [Q4, Q3, Q2, Q1].
       // Q1 year ago is missing (would be index 4).
       // So comparisons.yearAgo often will be null.
-      const yearAgoQtr = normalizedQuarterly.length >= 5 ? normalizedQuarterly[4] : null;
+      const yearAgoQtr =
+        normalizedQuarterly.length >= 5 ? normalizedQuarterly[4] : null;
 
       const calculateMargins = (q: any) => {
         if (!q) return null;
         return {
           ...q,
-          ebitdaMargin: (q.ebitda && q.revenue) ? (q.ebitda / q.revenue) : null,
-          netProfitMargin: (q.netIncome && q.revenue) ? (q.netIncome / q.revenue) : null,
-          operatingMargin: (q.operatingIncome && q.revenue) ? (q.operatingIncome / q.revenue) : null,
+          ebitdaMargin: q.ebitda && q.revenue ? q.ebitda / q.revenue : null,
+          netProfitMargin:
+            q.netIncome && q.revenue ? q.netIncome / q.revenue : null,
+          operatingMargin:
+            q.operatingIncome && q.revenue
+              ? q.operatingIncome / q.revenue
+              : null,
         };
       };
 
       const growth = (curr: number, base: number) => {
-        if (curr === undefined || base === undefined || base === 0 || curr === null || base === null) return null;
+        if (
+          curr === undefined ||
+          base === undefined ||
+          base === 0 ||
+          curr === null ||
+          base === null
+        )
+          return null;
         return (curr - base) / Math.abs(base);
       };
 
@@ -597,20 +722,25 @@ export class StocksService {
               revenue: growth(current?.revenue, prev?.revenue),
               netIncome: growth(current?.netIncome, prev?.netIncome),
               ebitda: growth(current?.ebitda, prev?.ebitda),
-              operatingIncome: growth(current?.operatingIncome, prev?.operatingIncome),
-              eps: growth(current?.eps, prev?.eps)
+              operatingIncome: growth(
+                current?.operatingIncome,
+                prev?.operatingIncome,
+              ),
+              eps: growth(current?.eps, prev?.eps),
             },
             yoy: {
               revenue: growth(current?.revenue, yearAgoQtr?.revenue),
               netIncome: growth(current?.netIncome, yearAgoQtr?.netIncome),
               ebitda: growth(current?.ebitda, yearAgoQtr?.ebitda),
-              operatingIncome: growth(current?.operatingIncome, yearAgoQtr?.operatingIncome),
-              eps: growth(current?.eps, yearAgoQtr?.eps)
-            }
-          }
-        }
+              operatingIncome: growth(
+                current?.operatingIncome,
+                yearAgoQtr?.operatingIncome,
+              ),
+              eps: growth(current?.eps, yearAgoQtr?.eps),
+            },
+          },
+        },
       };
-
     } catch (e) {
       console.error(`Failed to fetch quarterly results for ${symbol}`, e);
       throw new NotFoundException(`Quarterly results for ${symbol} not found`);
@@ -620,17 +750,21 @@ export class StocksService {
   async findAll() {
     // Return all stocks in DB
     const stocks = await this.prisma.stock.findMany({
-      orderBy: { lastUpdated: 'desc' }
+      orderBy: { lastUpdated: 'desc' },
     });
 
     // Background refresh for stocks with missing price (non-blocking)
-    const staleStocks = stocks.filter(s => !s.currentPrice || s.currentPrice === 0);
+    const staleStocks = stocks.filter(
+      (s) => !s.currentPrice || s.currentPrice === 0,
+    );
     if (staleStocks.length > 0) {
-      console.log(`Triggering background refresh for ${staleStocks.length} new/stale stocks...`);
+      console.log(
+        `Triggering background refresh for ${staleStocks.length} new/stale stocks...`,
+      );
       // Process in batches of 10 to avoid blasting the API
-      // We don't await this so the UI loads instantly with what we have, 
+      // We don't await this so the UI loads instantly with what we have,
       // and data pops in on next refresh or via socket if we had one.
-      this.getBatch(staleStocks.slice(0, 50).map(s => s.symbol));
+      this.getBatch(staleStocks.slice(0, 50).map((s) => s.symbol));
     }
 
     return stocks;
@@ -644,67 +778,111 @@ export class StocksService {
       const dbStocks = await this.prisma.stock.findMany({
         take: limit,
         skip: offset,
-        orderBy: { symbol: 'asc' } // Or marketCap if available, but symbol is stable
+        orderBy: { symbol: 'asc' }, // Or marketCap if available, but symbol is stable
       });
 
       if (dbStocks.length === 0) return [];
 
-      const fifteenMinutesAgo = new Date(Date.now() - 1 * 60 * 1000);
+      // Relaxed threshold: 15 minutes
+      const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
       const symbolsToFetch: string[] = [];
 
       // 2. Identify stale stocks
       for (const stock of dbStocks) {
         // If price is 0, or missing fundamentals (Market Cap/PE), or old -> fetch it
-        // Updated logic: New stocks (from Nifty 500 import) will have price=0. Refresh them immediately.
-        if (!stock.currentPrice || stock.currentPrice === 0 || !stock.marketCap || stock.lastUpdated < fifteenMinutesAgo) {
+        if (
+          !stock.currentPrice ||
+          stock.currentPrice === 0 ||
+          !stock.marketCap ||
+          stock.lastUpdated < fifteenMinutesAgo
+        ) {
           symbolsToFetch.push(stock.symbol);
         }
       }
 
+      // 3. Trigger background refresh if needed (Fire and Forget)
       if (symbolsToFetch.length > 0) {
-        const yahooFinance = await this.getYahooClient();
+        // We do NOT await this. It runs in the background.
+        this.refreshStocksMetadata(symbolsToFetch).catch((err) => {
+          console.error('Background refresh failed:', err);
+        });
+      }
 
-        console.log(`Refreshing ${symbolsToFetch.length} stocks...`);
+      // 5. Return current DB data immediately (Sub-second response)
+      return dbStocks;
+    } catch (error) {
+      console.error('Market summary fetch failed:', error);
+      return [];
+    }
+  }
 
-        const results = [];
-        const chunkSize = 5; // Reduced concurrency to avoid 429 errors
-        const delayBetweenChunks = 2000; // 2 seconds delay
+  /**
+   * Internal helper for background stock metadata refresh
+   */
+  private async refreshStocksMetadata(symbols: string[]) {
+    try {
+      const yahooFinance = await this.getYahooClient();
+      console.log(`[Background] Refreshing ${symbols.length} stocks...`);
 
-        for (let i = 0; i < symbolsToFetch.length; i += chunkSize) {
-          const chunk = symbolsToFetch.slice(i, i + chunkSize);
-          console.log(`Processing chunk ${Math.ceil((i + 1) / chunkSize)}/${Math.ceil(symbolsToFetch.length / chunkSize)}`);
+      const results = [];
+      const chunkSize = 10; // Increased chunk size for efficiency
+      const delayBetweenChunks = 500; // Reduced delay as it's background
 
-          const chunkPromises = chunk.map(symbol => {
-            let querySymbol = symbol;
-            if (symbol === 'NIFTY 50') querySymbol = '^NSEI';
-            if (symbol === 'SENSEX') querySymbol = '^BSESN';
+      for (let i = 0; i < symbols.length; i += chunkSize) {
+        const chunk = symbols.slice(i, i + chunkSize);
+        console.log(
+          `[Background] Processing chunk ${Math.ceil((i + 1) / chunkSize)}/${Math.ceil(symbols.length / chunkSize)}`,
+        );
 
-            return yahooFinance.quoteSummary(querySymbol.includes('.') || querySymbol.startsWith('^') ? querySymbol : `${querySymbol}.NS`, {
-              modules: ['price', 'summaryDetail', 'defaultKeyStatistics', 'financialData']
-            })
-              .then((res: any) => ({ ...res, originalSymbol: symbol }))
-              .catch((e: any) => {
-                console.error(`Failed to refresh ${symbol} - ${e.message}`);
-                return null;
-              });
-          });
+        const chunkPromises = chunk.map((symbol) => {
+          let querySymbol = symbol;
+          if (symbol === 'NIFTY 50') querySymbol = '^NSEI';
+          if (symbol === 'SENSEX') querySymbol = '^BSESN';
 
-          const chunkResults = (await Promise.all(chunkPromises)).filter(r => r !== null);
-          results.push(...chunkResults);
+          return yahooFinance
+            .quoteSummary(
+              querySymbol.includes('.') || querySymbol.startsWith('^')
+                ? querySymbol
+                : `${querySymbol}.NS`,
+              {
+                modules: [
+                  'price',
+                  'summaryDetail',
+                  'defaultKeyStatistics',
+                  'financialData',
+                ],
+              },
+            )
+            .then((res: any) => ({ ...res, originalSymbol: symbol }))
+            .catch((e: any) => {
+              console.error(
+                `[Background] Failed to refresh ${symbol} - ${e.message}`,
+              );
+              return null;
+            });
+        });
 
-          // Wait before next chunk if not the last one
-          if (i + chunkSize < symbolsToFetch.length) {
-            await new Promise(resolve => setTimeout(resolve, delayBetweenChunks));
-          }
+        const chunkResults = (await Promise.all(chunkPromises)).filter(
+          (r) => r !== null,
+        );
+        results.push(...chunkResults);
+
+        if (i + chunkSize < symbols.length) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, delayBetweenChunks),
+          );
         }
+      }
 
-        // 4. Update DB for these results
-        for (const data of results) {
-          const symbol = data.originalSymbol; // Use the preserved original symbol
-          if (!symbol) continue;
+      // Update DB
+      for (const data of results) {
+        const symbol = data.originalSymbol;
+        if (!symbol) continue;
 
-          const price = data.price?.regularMarketPrice;
-          const dataToUpdate = {
+        const price = data.price?.regularMarketPrice;
+        await this.prisma.stock.update({
+          where: { symbol: symbol },
+          data: {
             currentPrice: price,
             changePercent: (data.price?.regularMarketChangePercent || 0) * 100,
             marketCap: data.summaryDetail?.marketCap,
@@ -720,45 +898,45 @@ export class StocksService {
             totalRevenue: data.financialData?.totalRevenue,
             profitMargins: data.financialData?.profitMargins,
             operatingMargins: data.financialData?.operatingMargins,
-            lastUpdated: new Date()
-          };
-
-          await this.prisma.stock.update({
-            where: { symbol: symbol },
-            data: dataToUpdate
-          });
-        }
+            lastUpdated: new Date(),
+          },
+        });
       }
-
-      // 5. Re-fetch from DB to get fresh data (simplest way to ensure consistency)
-      const freshStocks = await this.prisma.stock.findMany({
-        take: limit,
-        skip: offset,
-        orderBy: { symbol: 'asc' }
-      });
-
-      return freshStocks;
-
+      console.log(
+        `[Background] Successfully updated ${results.length} stocks.`,
+      );
     } catch (error) {
-      console.error('Market summary fetch failed:', error);
-      return [];
+      console.error('[Background] Stocks refresh failed:', error);
     }
   }
   async getMarketNews() {
     try {
       const yahooFinance = await this.getYahooClient();
 
-      const queries = ['India Stock Market', 'Nifty 50', 'Sensex', 'Indian Economy'];
-      const requests = queries.map(q => yahooFinance.search(q, { newsCount: 10 }));
+      const queries = [
+        'India Stock Market',
+        'Nifty 50',
+        'Sensex',
+        'Indian Economy',
+      ];
+      const requests = queries.map((q) =>
+        yahooFinance.search(q, { newsCount: 10 }),
+      );
 
       const results = await Promise.all(requests);
 
       // Combine and deduplicate
-      const allNews = results.flatMap(r => r.news || []);
-      const uniqueNews = Array.from(new Map(allNews.map((item: any) => [item.uuid, item])).values());
+      const allNews = results.flatMap((r) => r.news || []);
+      const uniqueNews = Array.from(
+        new Map(allNews.map((item: any) => [item.uuid, item])).values(),
+      );
 
       // Sort by time (newest first)
-      uniqueNews.sort((a: any, b: any) => new Date(b.providerPublishTime).getTime() - new Date(a.providerPublishTime).getTime());
+      uniqueNews.sort(
+        (a: any, b: any) =>
+          new Date(b.providerPublishTime).getTime() -
+          new Date(a.providerPublishTime).getTime(),
+      );
 
       return uniqueNews.slice(0, 20);
     } catch (error) {
@@ -787,12 +965,13 @@ export class StocksService {
       }
 
       // Sort by time
-      const news = result.news.sort((a: any, b: any) =>
-        new Date(b.providerPublishTime).getTime() - new Date(a.providerPublishTime).getTime()
+      const news = result.news.sort(
+        (a: any, b: any) =>
+          new Date(b.providerPublishTime).getTime() -
+          new Date(a.providerPublishTime).getTime(),
       );
 
       return news;
-
     } catch (error) {
       console.error(`Failed to fetch news for ${symbol}:`, error);
       return [];
@@ -811,11 +990,11 @@ export class StocksService {
             { symbol: { startsWith: query, mode: 'insensitive' } },
             { companyName: { startsWith: query, mode: 'insensitive' } },
             { symbol: { contains: query, mode: 'insensitive' } },
-            { companyName: { contains: query, mode: 'insensitive' } }
-          ]
+            { companyName: { contains: query, mode: 'insensitive' } },
+          ],
         },
         take: 10,
-        orderBy: { marketCap: 'desc' } // Prioritize bigger companies
+        orderBy: { marketCap: 'desc' }, // Prioritize bigger companies
       });
 
       // If we have enough local results, return them (especially for short queries)
@@ -832,14 +1011,15 @@ export class StocksService {
         try {
           const remoteRes = await yahooFinance.search(query, {
             newsCount: 0,
-            quotesCount: 10
+            quotesCount: 10,
           });
 
           if (remoteRes.quotes && remoteRes.quotes.length > 0) {
             // Filter for Indian stocks ONLY (.NS or .BO)
-            const indianStocks = remoteRes.quotes.filter((q: any) =>
-              (q.symbol.endsWith('.NS') || q.symbol.endsWith('.BO')) &&
-              q.isYahooFinance !== true // Filter out non-tradable entities if needed
+            const indianStocks = remoteRes.quotes.filter(
+              (q: any) =>
+                (q.symbol.endsWith('.NS') || q.symbol.endsWith('.BO')) &&
+                q.isYahooFinance !== true, // Filter out non-tradable entities if needed
             );
 
             // Map to our format
@@ -848,14 +1028,14 @@ export class StocksService {
               companyName: q.shortname || q.longname || q.symbol,
               currentPrice: 0, // Placeholder
               exchange: q.exchange,
-              lastUpdated: new Date(0) // Old date to force refresh if viewed
+              lastUpdated: new Date(0), // Old date to force refresh if viewed
             }));
 
             // Merge: Local first, then Remote (excluding duplicates)
-            const seen = new Set(localResults.map(s => s.symbol));
+            const seen = new Set(localResults.map((s) => s.symbol));
             for (const rs of remoteStocks) {
               if (!seen.has(rs.symbol)) {
-                localResults.push(rs as any);
+                localResults.push(rs);
                 seen.add(rs.symbol);
               }
             }
@@ -866,7 +1046,6 @@ export class StocksService {
       }
 
       return localResults;
-
     } catch (error) {
       console.error(`Search failed for ${query}`, error);
       return [];
@@ -878,63 +1057,67 @@ export class StocksService {
     try {
       const yahooFinance = await this.getYahooClient();
 
-      const results = await Promise.all(symbols.map(async (symbol) => {
-        try {
-          // Check DB first for fresh data to save API calls
-          const dbStock = await this.prisma.stock.findUnique({ where: { symbol } });
-          const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const results = await Promise.all(
+        symbols.map(async (symbol) => {
+          try {
+            // Check DB first for fresh data to save API calls
+            const dbStock = await this.prisma.stock.findUnique({
+              where: { symbol },
+            });
+            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
-          if (dbStock && dbStock.lastUpdated > fiveMinutesAgo) {
-            return dbStock;
-          }
-
-          // Fetch live
-          const data = await yahooFinance.quoteSummary(symbol, {
-            modules: ['price', 'summaryDetail', 'defaultKeyStatistics']
-          }) as any;
-
-          if (!data || !data.price) return null;
-
-          const price = data.price.regularMarketPrice;
-          const changePercent = (data.price.regularMarketChangePercent || 0) * 100;
-
-          // Update DB
-          const dataToUpdate = {
-            currentPrice: price,
-            changePercent: changePercent,
-            marketCap: data.summaryDetail?.marketCap,
-            peRatio: data.summaryDetail?.trailingPE,
-            pbRatio: data.defaultKeyStatistics?.priceToBook,
-            high52Week: data.summaryDetail?.fiftyTwoWeekHigh,
-            low52Week: data.summaryDetail?.fiftyTwoWeekLow,
-            lastUpdated: new Date()
-          };
-
-          return await this.prisma.stock.upsert({
-            where: { symbol },
-            update: dataToUpdate,
-            create: {
-              symbol,
-              companyName: data.price.shortName || symbol,
-              exchange: data.price.exchangeName || 'NSE',
-              ...dataToUpdate
+            if (dbStock && dbStock.lastUpdated > fiveMinutesAgo) {
+              return dbStock;
             }
-          });
 
-        } catch (e) {
-          if (e instanceof Error && e.message.includes('Quote not found')) {
-            // Suppress annoying log
-            // console.warn(`Quote not found for ${symbol}, skipping.`);
-          } else {
-            console.error(`Error fetching ${symbol}`, e);
+            // Fetch live
+            const data = await yahooFinance.quoteSummary(symbol, {
+              modules: ['price', 'summaryDetail', 'defaultKeyStatistics'],
+            });
+
+            if (!data || !data.price) return null;
+
+            const price = data.price.regularMarketPrice;
+            const changePercent =
+              (data.price.regularMarketChangePercent || 0) * 100;
+
+            // Update DB
+            const dataToUpdate = {
+              currentPrice: price,
+              changePercent: changePercent,
+              marketCap: data.summaryDetail?.marketCap,
+              peRatio: data.summaryDetail?.trailingPE,
+              pbRatio: data.defaultKeyStatistics?.priceToBook,
+              high52Week: data.summaryDetail?.fiftyTwoWeekHigh,
+              low52Week: data.summaryDetail?.fiftyTwoWeekLow,
+              lastUpdated: new Date(),
+            };
+
+            return await this.prisma.stock.upsert({
+              where: { symbol },
+              update: dataToUpdate,
+              create: {
+                symbol,
+                companyName: data.price.shortName || symbol,
+                exchange: data.price.exchangeName || 'NSE',
+                ...dataToUpdate,
+              },
+            });
+          } catch (e) {
+            if (e instanceof Error && e.message.includes('Quote not found')) {
+              // Suppress annoying log
+              // console.warn(`Quote not found for ${symbol}, skipping.`);
+            } else {
+              console.error(`Error fetching ${symbol}`, e);
+            }
+            return null;
           }
-          return null;
-        }
-      }));
+        }),
+      );
 
-      return results.filter(r => r !== null);
+      return results.filter((r) => r !== null);
     } catch (error) {
-      console.error("Failed to get trending stocks", error);
+      console.error('Failed to get trending stocks', error);
       return [];
     }
   }
@@ -949,16 +1132,16 @@ export class StocksService {
       if (!nifty) {
         nifty = {
           symbol: 'NIFTY 50',
-          currentPrice: 24500.00,
-          changePercent: 0.50,
+          currentPrice: 24500.0,
+          changePercent: 0.5,
           // minimal fields to satisfy the map below
         } as any;
       }
       if (!sensex) {
         sensex = {
           symbol: 'SENSEX',
-          currentPrice: 80500.00,
-          changePercent: 0.60,
+          currentPrice: 80500.0,
+          changePercent: 0.6,
         } as any;
       }
 
@@ -969,11 +1152,13 @@ export class StocksService {
         symbol: index.symbol,
         price: index.currentPrice,
         // Calculate approx change value since we only store percent
-        change: index.currentPrice - (index.currentPrice / (1 + index.changePercent / 100)),
-        changePercent: index.changePercent
+        change:
+          index.currentPrice -
+          index.currentPrice / (1 + index.changePercent / 100),
+        changePercent: index.changePercent,
       }));
     } catch (error) {
-      console.error("Failed to get indices", error);
+      console.error('Failed to get indices', error);
       return [];
     }
   }
@@ -987,14 +1172,17 @@ export class StocksService {
       if (symbol === 'SENSEX') querySymbol = '^BSESN';
 
       // Ensure .NS suffix for Indian stocks if not an index or already suffixed
-      const lookupSymbol = (querySymbol.endsWith('.NS') || querySymbol.endsWith('.BO') || querySymbol.startsWith('^'))
-        ? querySymbol
-        : `${querySymbol.toUpperCase()}.NS`;
+      const lookupSymbol =
+        querySymbol.endsWith('.NS') ||
+        querySymbol.endsWith('.BO') ||
+        querySymbol.startsWith('^')
+          ? querySymbol
+          : `${querySymbol.toUpperCase()}.NS`;
 
       const queryOptions: any = {};
 
       const now = new Date();
-      let fromDate = new Date();
+      const fromDate = new Date();
 
       switch (range) {
         case '1d':
@@ -1023,19 +1211,34 @@ export class StocksService {
       console.log(`[History] Fetching ${lookupSymbol} ${range}`, queryOptions);
 
       // Add 10s timeout to prevent hanging
-      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000));
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout')), 10000),
+      );
       const fetchPromise = yahooFinance.chart(lookupSymbol, queryOptions);
 
-      const result = await Promise.race([fetchPromise, timeout]) as any;
+      const result = await Promise.race([fetchPromise, timeout]);
 
       let finalResult = result.quotes || [];
 
       // Fail-safe: If 1d intraday returned nothing (common on weekends/holidays for free API), fetch daily
       if (range === '1d' && (!result || result.length === 0)) {
-        console.log("Intraday empty, fetching daily fallback for 1d view");
-        const fallbackOptions = { ...queryOptions, interval: '1d', period1: Math.floor((new Date().setDate(new Date().getDate() - 30)) / 1000) };
-        const fallbackResult = await yahooFinance.chart(lookupSymbol, fallbackOptions);
-        if (fallbackResult && fallbackResult.quotes && fallbackResult.quotes.length > 0) {
+        console.log('Intraday empty, fetching daily fallback for 1d view');
+        const fallbackOptions = {
+          ...queryOptions,
+          interval: '1d',
+          period1: Math.floor(
+            new Date().setDate(new Date().getDate() - 30) / 1000,
+          ),
+        };
+        const fallbackResult = await yahooFinance.chart(
+          lookupSymbol,
+          fallbackOptions,
+        );
+        if (
+          fallbackResult &&
+          fallbackResult.quotes &&
+          fallbackResult.quotes.length > 0
+        ) {
           finalResult = fallbackResult.quotes.slice(-5); // Show last 5 daily candles
         }
       }
@@ -1044,7 +1247,9 @@ export class StocksService {
       if (range === '1d' && result && result.length > 0) {
         const lastDate = new Date(result[result.length - 1].date);
         const lastDateStr = lastDate.toDateString();
-        finalResult = result.filter((q: any) => new Date(q.date).toDateString() === lastDateStr);
+        finalResult = result.filter(
+          (q: any) => new Date(q.date).toDateString() === lastDateStr,
+        );
 
         if (finalResult.length === 0) {
           // Fallback to last ~25 points if date matching failed
@@ -1059,9 +1264,8 @@ export class StocksService {
         open: quote.open,
         high: quote.high,
         low: quote.low,
-        volume: quote.volume
+        volume: quote.volume,
       }));
-
     } catch (error) {
       console.error(`Failed to fetch history for ${symbol}:`, error);
       return [];
@@ -1110,12 +1314,14 @@ export class StocksService {
 
     // Check freshness of watched stocks
     const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-    const staleStocks = watchlist.filter(w => w.stock.lastUpdated < fifteenMinutesAgo);
+    const staleStocks = watchlist.filter(
+      (w) => w.stock.lastUpdated < fifteenMinutesAgo,
+    );
 
     if (staleStocks.length > 0) {
       // Fire and forget refresh for better UX speed, or await if critical
       // We'll await for now to ensure user sees fresh data on dashboard load
-      await Promise.all(staleStocks.map(w => this.findOne(w.stockSymbol)));
+      await Promise.all(staleStocks.map((w) => this.findOne(w.stockSymbol)));
 
       // Re-fetch to get updated values
       return this.prisma.watchlist.findMany({
@@ -1131,7 +1337,10 @@ export class StocksService {
   async getTechnicalAnalysis(symbol: string) {
     try {
       const yahooFinance = await this.getYahooClient();
-      const lookupSymbol = symbol.includes('.') || symbol.startsWith('^') ? symbol : `${symbol}.NS`;
+      const lookupSymbol =
+        symbol.includes('.') || symbol.startsWith('^')
+          ? symbol
+          : `${symbol}.NS`;
 
       const queryOptions = {
         period1: Math.floor((Date.now() - 35 * 24 * 60 * 60 * 1000) / 1000), // 35 days for RSI/SMA
@@ -1140,19 +1349,21 @@ export class StocksService {
 
       const result = await yahooFinance.chart(lookupSymbol, queryOptions);
       const quotes = result.quotes || [];
-      const closePrices = quotes.map((q: any) => q.close).filter((p: any) => p != null);
+      const closePrices = quotes
+        .map((q: any) => q.close)
+        .filter((p: any) => p != null);
 
       const signals = calculateTechnicalSignals(closePrices);
       return {
         ...signals,
-        syntheticRationale: generateSyntheticRationale(signals, symbol)
+        syntheticRationale: generateSyntheticRationale(signals, symbol),
       };
     } catch (e) {
       console.error(`Technical Analysis failed for ${symbol}`, e);
       const signals = calculateTechnicalSignals([]);
       return {
         ...signals,
-        syntheticRationale: generateSyntheticRationale(signals, symbol)
+        syntheticRationale: generateSyntheticRationale(signals, symbol),
       };
     }
   }
