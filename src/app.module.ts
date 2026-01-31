@@ -14,7 +14,6 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ConfigModule } from '@nestjs/config';
 import { AdminModule } from './admin/admin.module';
 
-
 @Module({
   imports: [
     ConfigModule.forRoot(),
@@ -29,9 +28,8 @@ import { AdminModule } from './admin/admin.module';
     InvestorsModule,
     InvestorsModule,
     AdminModule,
-
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}

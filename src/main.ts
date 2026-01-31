@@ -10,7 +10,7 @@ async function bootstrap() {
       'https://stockx-web.vercel.app',
       'https://www.stocksx.info',
       'https://stocksx.info',
-      (process.env.FRONTEND_URL || ''),
+      process.env.FRONTEND_URL || '',
     ].filter(Boolean),
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,

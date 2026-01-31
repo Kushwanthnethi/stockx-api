@@ -3,7 +3,7 @@ import { StocksService } from './stocks.service';
 
 @Controller('stocks')
 export class StocksController {
-  constructor(private readonly stocksService: StocksService) { }
+  constructor(private readonly stocksService: StocksService) {}
 
   @Get()
   findAll() {
@@ -69,11 +69,10 @@ export class StocksController {
   @Get(':symbol/history')
   getHistory(
     @Param('symbol') symbol: string,
-    @Query('range') range: '1d' | '1mo' | '3mo' | '1y'
+    @Query('range') range: '1d' | '1mo' | '3mo' | '1y',
   ) {
     return this.stocksService.getHistory(symbol, range);
   }
-
 
   @Get(':symbol')
   findOne(@Param('symbol') symbol: string) {
@@ -83,7 +82,7 @@ export class StocksController {
   @Post(':symbol/watch')
   toggleWatchlist(
     @Param('symbol') symbol: string,
-    @Body('userId') userId: string // In real app, get from req.user
+    @Body('userId') userId: string, // In real app, get from req.user
   ) {
     return this.stocksService.toggleWatchlist(userId, symbol.toUpperCase());
   }

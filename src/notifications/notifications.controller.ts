@@ -4,11 +4,11 @@ import { AuthGuard } from '@nestjs/passport';
 
 @Controller('notifications')
 export class NotificationsController {
-    constructor(private readonly notificationsService: NotificationsService) { }
+  constructor(private readonly notificationsService: NotificationsService) {}
 
-    @Get()
-    @UseGuards(AuthGuard('jwt'))
-    findAll(@Req() req: any) {
-        return this.notificationsService.findAll(req.user.userId);
-    }
+  @Get()
+  @UseGuards(AuthGuard('jwt'))
+  findAll(@Req() req: any) {
+    return this.notificationsService.findAll(req.user.userId);
+  }
 }

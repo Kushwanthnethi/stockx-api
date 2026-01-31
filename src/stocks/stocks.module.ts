@@ -11,7 +11,12 @@ import { AIConfigService } from './ai-config.service';
 @Module({
   imports: [PrismaModule],
   controllers: [StocksController, StockOfTheWeekController, VerdictsController],
-  providers: [StocksService, StockOfTheWeekService, VerdictsService, AIConfigService],
+  providers: [
+    StocksService,
+    StockOfTheWeekService,
+    VerdictsService,
+    AIConfigService,
+  ],
   exports: [StocksService, AIConfigService],
 })
-export class StocksModule { }
+export class StocksModule {}

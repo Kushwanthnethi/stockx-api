@@ -5,19 +5,19 @@ import { UsersService } from '../../users/users.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-    constructor(private usersService: UsersService) {
-        super({
-            jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-            ignoreExpiration: false,
-            secretOrKey: process.env.JWT_SECRET || 'changeme',
-        });
-    }
+  constructor(private usersService: UsersService) {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: process.env.JWT_SECRET || 'changeme',
+    });
+  }
 
-    async validate(payload: any) {
-        const user = await this.usersService.findOne(payload.sub);
-        if (!user) {
-            throw new UnauthorizedException();
-        }
-        return user;
+  async validate(payload: any) {
+    const user = await this.usersService.findOne(payload.sub);
+    if (!user) {
+      throw new UnauthorizedException();
     }
+    return user;
+  }
 }

@@ -1,4 +1,16 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Put, UseGuards, Request, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Put,
+  UseGuards,
+  Request,
+  Query,
+} from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -6,7 +18,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // This seems correct if 
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) { }
+  constructor(private readonly usersService: UsersService) {}
 
   @Post()
   create(@Body() createUserDto: any) {
@@ -15,7 +27,16 @@ export class UsersController {
 
   @UseGuards(JwtAuthGuard)
   @Put('me')
-  async updateMe(@Request() req: any, @Body() body: { firstName?: string; lastName?: string; bio?: string; avatarUrl?: string }) {
+  async updateMe(
+    @Request() req: any,
+    @Body()
+    body: {
+      firstName?: string;
+      lastName?: string;
+      bio?: string;
+      avatarUrl?: string;
+    },
+  ) {
     return this.usersService.updateProfile(req.user.id, body);
   }
 

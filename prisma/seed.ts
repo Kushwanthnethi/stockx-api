@@ -1,8 +1,11 @@
+
 import { PrismaClient } from '@prisma/client';
-import { NIFTY_500 } from '../src/stocks/market-data';
-import { ADDITIONAL_STOCKS } from '../src/stocks/extended-market-data';
-import { seedInvestors } from './seed-investors';
+import yahooFinance from 'yahoo-finance2';
 import * as bcrypt from 'bcrypt';
+import { NIFTY_500 } from '../src/stocks/market-data';
+import { ADDITIONAL_STOCKS } from '../src/stocks/massive-market-data';
+import { DISCOVERED_STOCKS as MICRO_STOCKS } from '../src/stocks/discovered-stocks';
+import { seedInvestors } from './seed-investors';
 
 const prisma = new PrismaClient();
 
@@ -34,24 +37,7 @@ async function main() {
     });
     console.log(`Admin user seeded: ${adminUser.email}`);
 
-    // Clear existing data - COMMENTED OUT TO PREVENT DATA LOSS ON REDEPLOY
-    // await prisma.interaction.deleteMany({});
-    // await prisma.comment.deleteMany({});
-    // await prisma.postStock.deleteMany({});
-    // await prisma.investorStock.deleteMany({});
-    // await prisma.investor.deleteMany({});
-    // await prisma.post.deleteMany({});
-
-    // Cleanup specific unwanted stocks (e.g. AAPL) - Keeping this as it seems specific
-    await prisma.stock.deleteMany({
-        where: {
-            symbol: {
-                in: ['AAPL']
-            }
-        }
-    });
-
-    // Create Users (Keeping users for testing convenience, but no posts)
+    // Create Users
     const user1 = await prisma.user.upsert({
         where: { email: 'arjun@example.com' },
         update: {},
@@ -79,44 +65,72 @@ async function main() {
     });
 
     // Create Stocks
-    // Seed Nifty 500+ Stocks
-    // Seed Nifty 500+ Stocks
-    const allStocks = [...NIFTY_500, ...ADDITIONAL_STOCKS];
+    const allStocks = [...NIFTY_500, ...ADDITIONAL_STOCKS, ...MICRO_STOCKS];
     // Remove duplicates based on symbol
     const uniqueStocks = Array.from(new Map(allStocks.map(item => [item.symbol, item])).values());
 
     console.log(`Seeding expanded stock list (Total: ${uniqueStocks.length})...`);
+    console.log('NOTE: Performing LIVE VALIDATION with Yahoo Finance to prevent dead stocks.');
 
-    const BATCH_SIZE = 70;
+    const BATCH_SIZE = 50;
     let processedCount = 0;
+    let skippedCount = 0;
 
     for (let i = 0; i < uniqueStocks.length; i += BATCH_SIZE) {
         const batch = uniqueStocks.slice(i, i + BATCH_SIZE);
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         const totalBatches = Math.ceil(uniqueStocks.length / BATCH_SIZE);
 
-        console.log(`[Phase ${batchNumber}/${totalBatches}] Processing stocks ${i + 1} to ${Math.min(i + BATCH_SIZE, uniqueStocks.length)}...`);
+        console.log(`[Phase ${batchNumber}/${totalBatches}] Validating stocks ${i + 1} to ${Math.min(i + BATCH_SIZE, uniqueStocks.length)}...`);
 
-        for (const stock of batch) {
-            await prisma.stock.upsert({
-                where: { symbol: stock.symbol },
-                update: {}, // Don't overwrite if exists
-                create: {
-                    symbol: stock.symbol,
-                    companyName: stock.companyName,
-                    exchange: 'NSE',
-                    currentPrice: 0,
-                    changePercent: 0,
-                    marketCap: 0,
-                },
-            });
+        // 1. Get Symbols for Batch
+        const symbols = batch.map(s => s.symbol);
+
+        try {
+            // 2. Fetch Live Data API
+            const quotes = await yahooFinance.quote(symbols, { validateResult: false });
+
+            // Map results for easy lookup
+            const quoteMap = new Map(quotes.map(q => [q.symbol, q]));
+
+            for (const stock of batch) {
+                const quote = quoteMap.get(stock.symbol) as any;
+
+                // 3. VALIDATION LOGIC
+                const isValid = quote &&
+                    quote.regularMarketPrice &&
+                    quote.regularMarketPrice > 0 &&
+                    (quote.marketCap || 0) > 0;
+
+                if (isValid) {
+                    await prisma.stock.upsert({
+                        where: { symbol: stock.symbol },
+                        update: {},
+                        create: {
+                            symbol: stock.symbol,
+                            companyName: stock.companyName,
+                            exchange: 'NSE',
+                            currentPrice: quote?.regularMarketPrice || 0,
+                            changePercent: quote?.regularMarketChangePercent || 0,
+                            marketCap: quote?.marketCap || 0,
+                            peRatio: quote?.trailingPE || null,
+                        },
+                    });
+                } else {
+                    skippedCount++;
+                }
+            }
+        } catch (error) {
+            console.error(`Batch failed for symbols: ${symbols[0]}...`, error);
         }
-        processedCount += batch.length;
-        // Optional: Add a small delay if needed to be even gentler to the DB, but 70 is small enough for Neon.
-    }
-    console.log(`Stocks seeded: ${uniqueStocks.length} stocks processed.`);
 
-    // Seed Indices (NIFTY 50 & SENSEX) - Critical for Home Page Ticker
+        processedCount += batch.length;
+        // 2 second delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    console.log(`Seeding Complete. Processed: ${processedCount}. Skipped (Dead): ${skippedCount}.`);
+
+    // Seed Indices (NIFTY 50 & SENSEX)
     console.log('Seeding Indices...');
     const indices = [
         { symbol: 'NIFTY 50', companyName: 'Nifty 50 Index', currentPrice: 24500, changePercent: 0.5, exchange: 'NSE' },
@@ -125,7 +139,7 @@ async function main() {
     for (const index of indices) {
         await prisma.stock.upsert({
             where: { symbol: index.symbol },
-            update: {}, // Keep existing if there
+            update: {},
             create: {
                 symbol: index.symbol,
                 companyName: index.companyName,
@@ -138,42 +152,34 @@ async function main() {
     }
     console.log('Indices seeded.');
 
-    console.log('Stocks seeded.');
-
-    // Seed Investors (Rich Profiles)
+    // Seed Investors
     console.log('Seeding Investors...');
     await seedInvestors(prisma);
     console.log('Investors seeded.');
 
-    // Add Feed Posts ONLY IF EMPTY so we don't spam or duplicate
+    // Seed Posts
     const postCount = await prisma.post.count();
     if (postCount === 0) {
-        console.log('Seeding posts (Table empty)...');
-
+        console.log('Seeding posts...');
         await prisma.post.create({
             data: {
                 userId: user1.id, // Arjun
                 content: 'Nifty crossing 24k looks imminent! Banks are leading the rally. Bullish on $HDFCBANK. #Nifty50 #StockMarket',
             }
         });
-
         await prisma.post.create({
             data: {
                 userId: user2.id, // Priya
                 content: 'Technical breakout seen in $TATAMOTORS above 850 levels. Volume is strong! 🚀 #Breakout #Trading',
-                imageUrl: 'https://images.unsplash.com/photo-1611974765270-ca1258634369?auto=format&fit=crop&q=80&w=600&h=400' // Generic chart image
+                imageUrl: 'https://images.unsplash.com/photo-1611974765270-ca1258634369?auto=format&fit=crop&q=80&w=600&h=400'
             }
         });
-
         await prisma.post.create({
             data: {
                 userId: user1.id, // Arjun
                 content: 'Just analyzed the quarterly results for $INFY. Margins are stable but guidance is weak. Staying cautious.',
             }
         });
-        console.log(`Seeding finished. Posts created.`);
-    } else {
-        console.log('Posts already exist. Skipping seed posts.');
     }
 }
 

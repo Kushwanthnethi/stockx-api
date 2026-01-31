@@ -6,7 +6,7 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   async findByEmail(email: string) {
     return this.prisma.user.findUnique({
@@ -14,9 +14,17 @@ export class UsersService {
     });
   }
 
-  async create(data: { email: string; firstName: string; lastName: string; picture?: string; password?: string }) {
+  async create(data: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    picture?: string;
+    password?: string;
+  }) {
     // Generate a handle from names
-    const baseHandle = (data.firstName + data.lastName).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const baseHandle = (data.firstName + data.lastName)
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
     let handle = baseHandle;
     // ensure at least some length
     if (handle.length < 3) {
@@ -29,7 +37,9 @@ export class UsersService {
       counter++;
     }
 
-    const passwordHash = data.password ? await bcrypt.hash(data.password, 10) : 'oauth-user';
+    const passwordHash = data.password
+      ? await bcrypt.hash(data.password, 10)
+      : 'oauth-user';
 
     return this.prisma.user.create({
       data: {
@@ -60,13 +70,21 @@ export class UsersService {
             followers: true,
             following: true,
             posts: true,
-          }
-        }
-      }
+          },
+        },
+      },
     });
   }
 
-  async updateProfile(id: string, data: { firstName?: string; lastName?: string; bio?: string; avatarUrl?: string }) {
+  async updateProfile(
+    id: string,
+    data: {
+      firstName?: string;
+      lastName?: string;
+      bio?: string;
+      avatarUrl?: string;
+    },
+  ) {
     return this.prisma.user.update({
       where: { id },
       data,
@@ -74,15 +92,15 @@ export class UsersService {
   }
 
   async followUser(followerId: string, followeeId: string) {
-    if (followerId === followeeId) throw new Error("Cannot follow yourself");
+    if (followerId === followeeId) throw new Error('Cannot follow yourself');
 
     const existingFollow = await this.prisma.follow.findUnique({
       where: {
         followerId_followeeId: {
           followerId,
-          followeeId
-        }
-      }
+          followeeId,
+        },
+      },
     });
 
     if (existingFollow) {
@@ -107,7 +125,7 @@ export class UsersService {
   }
 
   async blockUser(blockerId: string, blockedId: string) {
-    if (blockerId === blockedId) throw new Error("Cannot block yourself");
+    if (blockerId === blockedId) throw new Error('Cannot block yourself');
 
     // Also force unfollow if blocking
     await this.unfollowUser(blockerId, blockedId);
@@ -118,14 +136,14 @@ export class UsersService {
       where: {
         blockerId_blockedId: {
           blockerId,
-          blockedId
-        }
+          blockedId,
+        },
       },
       create: {
         blockerId,
-        blockedId
+        blockedId,
       },
-      update: {}
+      update: {},
     });
   }
 
@@ -135,9 +153,9 @@ export class UsersService {
       where: {
         followerId_followeeId: {
           followerId,
-          followeeId
-        }
-      }
+          followeeId,
+        },
+      },
     });
     return !!follow;
   }
@@ -153,11 +171,11 @@ export class UsersService {
             firstName: true,
             lastName: true,
             avatarUrl: true,
-          }
-        }
-      }
+          },
+        },
+      },
     });
-    return followers.map(f => f.follower);
+    return followers.map((f) => f.follower);
   }
 
   async getFollowing(userId: string) {
@@ -171,11 +189,11 @@ export class UsersService {
             firstName: true,
             lastName: true,
             avatarUrl: true,
-          }
-        }
-      }
+          },
+        },
+      },
     });
-    return following.map(f => f.followee);
+    return following.map((f) => f.followee);
   }
 
   update(id: string, updateUserDto: UpdateUserDto) {
@@ -196,14 +214,14 @@ export class UsersService {
         where: {
           userId_visitDate: {
             userId,
-            visitDate: today
-          }
+            visitDate: today,
+          },
         },
         create: {
           userId,
-          visitDate: today
+          visitDate: today,
         },
-        update: {} // Do nothing if exists
+        update: {}, // Do nothing if exists
       });
     } catch (e) {
       // Ignore race conditions or errors
@@ -218,23 +236,26 @@ export class UsersService {
       where: {
         userId,
         visitDate: {
-          gte: startDate
-        }
+          gte: startDate,
+        },
       },
       select: {
-        visitDate: true
-      }
+        visitDate: true,
+      },
     });
 
     // Grouping isn't strictly needed as we store one per day, but let's return counts just in case we change logic later
     // or just return dates. Front-end expects generic "count".
     // Actually, since unique constraint is user+date, count is always 1 per date.
     const visitMap = new Map<string, number>();
-    visits.forEach(v => {
+    visits.forEach((v) => {
       const dateStr = v.visitDate.toISOString().split('T')[0];
       visitMap.set(dateStr, 1);
     });
 
-    return Array.from(visitMap.entries()).map(([date, count]) => ({ date, count }));
+    return Array.from(visitMap.entries()).map(([date, count]) => ({
+      date,
+      count,
+    }));
   }
 }

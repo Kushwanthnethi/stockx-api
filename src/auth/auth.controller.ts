@@ -1,11 +1,20 @@
-import { Controller, Get, Post, Body, UseGuards, Req, Res, UnauthorizedException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  UseGuards,
+  Req,
+  Res,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthGuard } from '@nestjs/passport';
 import { Public } from './public.decorator';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
   @Get('google')
   @UseGuards(AuthGuard('google'))
@@ -19,7 +28,9 @@ export class AuthController {
     const data: any = await this.authService.googleLogin(req);
     // Redirect to frontend with token
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    return res.redirect(`${frontendUrl}/auth/callback?token=${data.access_token}`);
+    return res.redirect(
+      `${frontendUrl}/auth/callback?token=${data.access_token}`,
+    );
   }
   @Get('me')
   @UseGuards(AuthGuard('jwt'))

@@ -11,4 +11,4 @@ import { PassportModule } from '@nestjs/passport';
   providers: [UsersService],
   exports: [UsersService],
 })
-export class UsersModule { }
+export class UsersModule {}
