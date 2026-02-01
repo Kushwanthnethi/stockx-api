@@ -410,19 +410,19 @@ export class StockOfTheWeekService implements OnModuleInit {
       this.logger.log(`Found ${activePicks.length} picks to sync.`);
 
       for (const pick of activePicks) {
-        // FindOne logic includes currentPrice fetching from Yahoo
-        const currentData = await this.stocksService.findOne(pick.stockSymbol);
+        // Fetch fresh quote to get daily high
+        const quote = await this.stocksService.getQuote(pick.stockSymbol);
 
-        if (currentData && currentData.currentPrice) {
-          const currentPrice = currentData.currentPrice;
+        if (quote && quote.regularMarketDayHigh) {
+          const dayHigh = quote.regularMarketDayHigh;
           const oldMax = pick.maxHigh || pick.priceAtSelection;
 
-          if (currentPrice > oldMax) {
+          if (dayHigh > oldMax) {
             await this.prisma.stockOfTheWeek.update({
               where: { id: pick.id },
-              data: { maxHigh: currentPrice },
+              data: { maxHigh: dayHigh },
             });
-            this.logger.log(`Updated Max High for ${pick.stockSymbol}: ${currentPrice}`);
+            this.logger.log(`Updated Max High for ${pick.stockSymbol}: ${dayHigh}`);
           } else if (pick.maxHigh === null) {
             // Initialize if somehow null
             await this.prisma.stockOfTheWeek.update({
@@ -431,6 +431,9 @@ export class StockOfTheWeekService implements OnModuleInit {
             });
           }
         }
+
+        // Also refresh the general stock data in DB
+        await this.stocksService.findOne(pick.stockSymbol);
       }
     } catch (e) {
       this.logger.error('Failed to sync Max High prices', e);

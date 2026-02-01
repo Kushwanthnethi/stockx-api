@@ -9,7 +9,7 @@ import {
 export class StocksService {
   private yahooFinance: any = null;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   private async getYahooClient() {
     if (this.yahooFinance) return this.yahooFinance;
@@ -48,6 +48,13 @@ export class StocksService {
       throw e;
     }
     return this.yahooFinance;
+  }
+
+  async getQuote(symbol: string) {
+    const yahooFinance = await this.getYahooClient();
+    let result = await yahooFinance.quote(symbol);
+    if (Array.isArray(result)) result = result[0];
+    return result;
   }
 
   async findOne(symbol: string) {
@@ -104,12 +111,12 @@ export class StocksService {
         const modules = isIndex
           ? ['price', 'summaryDetail']
           : [
-              'price',
-              'summaryDetail',
-              'defaultKeyStatistics',
-              'financialData',
-              'summaryProfile',
-            ];
+            'price',
+            'summaryDetail',
+            'defaultKeyStatistics',
+            'financialData',
+            'summaryProfile',
+          ];
 
         if (hasSuffix) {
           try {
@@ -559,10 +566,10 @@ export class StocksService {
 
         latestQuarter: latestQtr
           ? {
-              period: latestQtr.date,
-              estimate: latestQtr.estimate,
-              actual: latestQtr.actual,
-            }
+            period: latestQtr.date,
+            estimate: latestQtr.estimate,
+            actual: latestQtr.actual,
+          }
           : null,
 
         history: history.map((h: any) => ({
@@ -1174,8 +1181,8 @@ export class StocksService {
       // Ensure .NS suffix for Indian stocks if not an index or already suffixed
       const lookupSymbol =
         querySymbol.endsWith('.NS') ||
-        querySymbol.endsWith('.BO') ||
-        querySymbol.startsWith('^')
+          querySymbol.endsWith('.BO') ||
+          querySymbol.startsWith('^')
           ? querySymbol
           : `${querySymbol.toUpperCase()}.NS`;
 
