@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { StocksService } from './stocks.service';
 import { StocksController } from './stocks.controller';
 import { StockOfTheWeekService } from './stock-of-the-week.service';
@@ -9,7 +10,7 @@ import { VerdictsController } from './verdicts.controller';
 import { AIConfigService } from './ai-config.service';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, ConfigModule],
   controllers: [StocksController, StockOfTheWeekController, VerdictsController],
   providers: [
     StocksService,
@@ -19,4 +20,4 @@ import { AIConfigService } from './ai-config.service';
   ],
   exports: [StocksService, AIConfigService],
 })
-export class StocksModule {}
+export class StocksModule { }

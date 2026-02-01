@@ -58,7 +58,17 @@ export class StockOfTheWeekService implements OnModuleInit {
   async selectStockOfTheWeek() {
     try {
       // 1. Fetch Universe (Nifty 50 + Others)
-      const allStocks = await this.stocksService.findAll();
+      const [allStocks, recentWinners] = await Promise.all([
+        this.stocksService.findAll(),
+        this.prisma.stockOfTheWeek.findMany({
+          orderBy: { weekStartDate: 'desc' },
+          take: 4,
+          select: { stockSymbol: true },
+        }),
+      ]);
+
+      const winnerSymbols = new Set(recentWinners.map((w) => w.stockSymbol));
+      this.logger.log(`Excluding ${winnerSymbols.size} recent winners from candidates.`);
 
       // Filter for valid data
       const candidates = allStocks.filter(
@@ -68,7 +78,8 @@ export class StockOfTheWeekService implements OnModuleInit {
           s.peRatio !== null &&
           s.returnOnEquity !== null &&
           s.high52Week !== null &&
-          s.changePercent !== null,
+          s.changePercent !== null &&
+          !winnerSymbols.has(s.symbol),
       ) as ((typeof allStocks)[0] & {
         currentPrice: number;
         marketCap: number;
@@ -79,9 +90,10 @@ export class StockOfTheWeekService implements OnModuleInit {
       })[];
 
       if (candidates.length === 0) {
-        this.logger.warn('No valid candidates found for Stock of the Week.');
+        this.logger.warn(`No valid candidates found for Stock of the Week. Checked ${allStocks.length} total stocks.`);
         return;
       }
+      this.logger.log(`Found ${candidates.length} candidates out of ${allStocks.length} total stocks.`);
 
       // 2. Score & Shortlist Finalists
       const scored = candidates.map((stock) => {
@@ -102,6 +114,7 @@ export class StockOfTheWeekService implements OnModuleInit {
       let finalNarrative;
       let finalScore;
 
+      this.logger.log(`AI Exhausted Status: ${this.aiConfig.isAllExhausted}. Keys active: ${this.aiConfig.activeKeyCount}`);
       if (!this.aiConfig.isAllExhausted) {
         const decision = await this.decideWinnerWithAI(finalists);
         if (decision) {
@@ -188,13 +201,15 @@ export class StockOfTheWeekService implements OnModuleInit {
     retryCount = 0,
   ): Promise<{ symbol: string; narrative: string; score: number } | null> {
     this.logger.log(
-      `Gathering news for finalists...${retryCount > 0 ? ' (Retry ' + retryCount + ')' : ''}`,
+      `Gathering news for finalists: ${finalists.map(f => f.symbol).join(', ')}...${retryCount > 0 ? ' (Retry ' + retryCount + ')' : ''}`,
     );
 
     // Fetch news for all 5 in parallel
     const enrichedFinalists = await Promise.all(
       finalists.map(async (f) => {
+        this.logger.log(`Fetching news for finalist: ${f.symbol}`);
         const news = await this.stocksService.getStockNews(f.symbol);
+        this.logger.log(`Found ${news?.length || 0} news items for ${f.symbol}`);
         const topNews = news
           .slice(0, 2)
           .map(
@@ -251,35 +266,66 @@ export class StockOfTheWeekService implements OnModuleInit {
 
     try {
       const model = this.aiConfig.getModel({
-        model: 'gemini-2.0-flash',
+        model: 'models/gemini-flash-latest',
+        isSOW: true,
       });
 
-      if (!model) return null;
+      if (!model) {
+        this.logger.warn('AI Model unavailable for decision making (null returned from aiConfig).');
+        return null;
+      }
 
       const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
+      const response = await result.response;
+      const responseText = response.text();
+      this.logger.log(`AI Response received. Length: ${responseText.length}`);
 
-      this.logger.log(`AI Response: ${responseText.substring(0, 100)}...`);
+      this.logger.log(`AI Response (first 100): ${responseText.substring(0, 100)}...`);
 
-      const cleanJson = responseText
-        .replace(/```json/g, '')
-        .replace(/```/g, '')
-        .trim();
-      const data = JSON.parse(cleanJson);
+      // Robust JSON extraction
+      let data: any = null;
+      try {
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const cleanJson = jsonMatch[0]
+            .replace(/\\n/g, '\n') // Handle escaped newlines if any
+            .replace(/[\u0000-\u001F\u007F-\u009F]/g, ''); // Remove control characters
+          data = JSON.parse(cleanJson);
+        }
+      } catch (parseError) {
+        this.logger.error('JSON Parse Error from AI response', parseError);
+        this.logger.debug('Full AI Response for debugging:', responseText);
+      }
+
+      if (!data) {
+        this.logger.warn('AI response data is null after parsing attempts.');
+        return null;
+      }
 
       // Validate symbol exists in our list (handle potential AI hallucination of symbol format)
+      const winnerSymbol = (data.winner_symbol || data.symbol || '').toUpperCase();
+      this.logger.log(`AI selected symbol: ${winnerSymbol}`);
       const matchedStats = finalists.find(
         (f) =>
-          f.symbol === data.winner_symbol ||
-          f.symbol.split('.')[0] === data.winner_symbol.split('.')[0],
+          f.symbol.toUpperCase() === winnerSymbol ||
+          f.symbol.split('.')[0].toUpperCase() === winnerSymbol.split('.')[0] ||
+          winnerSymbol.includes(f.symbol.split('.')[0].toUpperCase()),
       );
 
-      if (matchedStats && data.thesis_markdown) {
+      const thesis = data.thesis_markdown || data.narrative || data.thesis || data.investment_thesis || data.analysis || data.rationale;
+
+      if (matchedStats && thesis) {
+        this.logger.log(`AI Selection Validated: ${matchedStats.symbol}. Thesis length: ${thesis.length}`);
         return {
-          symbol: matchedStats.symbol, // Use our trusted symbol
-          narrative: data.thesis_markdown,
-          score: data.conviction_score || matchedStats.score, // Use AI score if reasonable
+          symbol: matchedStats.symbol,
+          narrative: thesis,
+          score: data.conviction_score || data.score || matchedStats.score,
         };
+      } else {
+        this.logger.warn(
+          `AI Selection Mismatch: symbol=${winnerSymbol} (Matched? ${!!matchedStats}), thesis length=${thesis?.length || 0}`,
+        );
+        this.logger.debug('Full AI Response for debugging:', responseText);
       }
       return null;
     } catch (e: any) {
@@ -298,7 +344,7 @@ export class StockOfTheWeekService implements OnModuleInit {
           }
         } catch (err) { }
 
-        this.aiConfig.handleQuotaExceeded(delaySeconds);
+        this.aiConfig.handleQuotaExceeded(delaySeconds, true);
 
         // RETRY LOGIC: Try one more time with the new key after a small backoff
         if (retryCount < 1 && !this.aiConfig.isAllExhausted) {
