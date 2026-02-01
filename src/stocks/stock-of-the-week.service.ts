@@ -10,6 +10,22 @@ import { AIConfigService } from './ai-config.service';
 export class StockOfTheWeekService implements OnModuleInit {
   private readonly logger = new Logger(StockOfTheWeekService.name);
 
+  private getCurrentSundayIST(): Date {
+    const now = new Date();
+    // IST is UTC + 5:30
+    const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+    const dayOfWeek = istNow.getUTCDay(); // 0 (Sun) to 6 (Sat)
+    const date = istNow.getUTCDate();
+
+    // Move to the most recent Sunday
+    const sundayDate = new Date(istNow);
+    sundayDate.setUTCDate(date - dayOfWeek);
+    sundayDate.setUTCHours(0, 0, 0, 0);
+
+    // Convert back to real UTC (subtract the offset)
+    return new Date(sundayDate.getTime() - 5.5 * 60 * 60 * 1000);
+  }
+
   constructor(
     private prisma: PrismaService,
     private stocksService: StocksService,
@@ -20,11 +36,7 @@ export class StockOfTheWeekService implements OnModuleInit {
     this.logger.log(`AI Ready: ${this.aiConfig.activeKeyCount} keys active.`);
 
     // 1. Calculate current week's Sunday
-    const today = new Date();
-    const dayOfWeek = today.getDay(); // 0 (Sun) to 6 (Sat)
-    const diff = today.getDate() - dayOfWeek;
-    const currentSunday = new Date(today.setDate(diff));
-    currentSunday.setHours(0, 0, 0, 0);
+    const currentSunday = this.getCurrentSundayIST();
 
     // 2. Fetch latest record
     const latest = await this.prisma.stockOfTheWeek.findFirst({
@@ -36,7 +48,7 @@ export class StockOfTheWeekService implements OnModuleInit {
 
     if (isOutdated || isIncomplete) {
       this.logger.log(
-        `Stock of the Week ${isOutdated ? 'outdated' : 'incomplete'}. Running selection/repair...`,
+        `Stock of the Week ${isOutdated ? 'outdated' : 'incomplete'}. Running selection/repair for ${currentSunday.toISOString()}...`,
       );
       // Wait for 5s to ensure everything else is initialized
       setTimeout(() => this.handleWeeklySelection(), 5000);
@@ -139,11 +151,7 @@ export class StockOfTheWeekService implements OnModuleInit {
       }
 
       // 4. Save to DB
-      const today = new Date();
-      const dayOfWeek = today.getDay(); // 0 (Sun) to 6 (Sat)
-      const diff = today.getDate() - dayOfWeek;
-      const sundayDate = new Date(today.setDate(diff));
-      sundayDate.setHours(0, 0, 0, 0);
+      const sundayDate = this.getCurrentSundayIST();
 
       await this.prisma.stockOfTheWeek.upsert({
         where: { weekStartDate: sundayDate },
