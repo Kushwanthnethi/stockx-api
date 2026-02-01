@@ -6,7 +6,7 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async findByEmail(email: string) {
     return this.prisma.user.findUnique({
@@ -171,6 +171,7 @@ export class UsersService {
             firstName: true,
             lastName: true,
             avatarUrl: true,
+            isVerified: true,
           },
         },
       },
@@ -189,6 +190,7 @@ export class UsersService {
             firstName: true,
             lastName: true,
             avatarUrl: true,
+            isVerified: true,
           },
         },
       },
