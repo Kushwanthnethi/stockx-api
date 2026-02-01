@@ -14,26 +14,37 @@ export class StockOfTheWeekService implements OnModuleInit {
     private prisma: PrismaService,
     private stocksService: StocksService,
     private aiConfig: AIConfigService,
-  ) {}
+  ) { }
 
   async onModuleInit() {
     this.logger.log(`AI Ready: ${this.aiConfig.activeKeyCount} keys active.`);
 
-    // Auto-seed on startup if empty
+    // 1. Calculate current week's Sunday
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0 (Sun) to 6 (Sat)
+    const diff = today.getDate() - dayOfWeek;
+    const currentSunday = new Date(today.setDate(diff));
+    currentSunday.setHours(0, 0, 0, 0);
+
+    // 2. Fetch latest record
     const latest = await this.prisma.stockOfTheWeek.findFirst({
       orderBy: { weekStartDate: 'desc' },
     });
 
-    if (!latest || (latest.narrative && latest.narrative.length < 200)) {
+    const isOutdated = !latest || latest.weekStartDate.getTime() < currentSunday.getTime();
+    const isIncomplete = latest && latest.narrative && latest.narrative.length < 200;
+
+    if (isOutdated || isIncomplete) {
       this.logger.log(
-        'Stock of the Week missing or has incomplete narrative. Running selection/repair...',
+        `Stock of the Week ${isOutdated ? 'outdated' : 'incomplete'}. Running selection/repair...`,
       );
+      // Wait for 5s to ensure everything else is initialized
       setTimeout(() => this.handleWeeklySelection(), 5000);
     }
   }
 
-  // Run every Sunday at 12:00 PM
-  @Cron('0 12 * * 0')
+  // Run every Sunday at 2:00 AM
+  @Cron('0 2 * * 0')
   async handleWeeklySelection() {
     this.logger.log('Starting weekly stock selection process...');
     await this.selectStockOfTheWeek();
@@ -206,8 +217,8 @@ export class StockOfTheWeekService implements OnModuleInit {
         
         THE CANDIDATES:
         ${enrichedFinalists
-          .map(
-            (f) => `
+        .map(
+          (f) => `
         [${f.symbol}] ${f.companyName}
         - Price: ₹${f.currentPrice}, Trend: ${f.changePercent > 0 ? '+' : ''}${f.changePercent.toFixed(2)}%
         - PE: ${f.peRatio?.toFixed(1)}, ROE: ${(f.returnOnEquity * 100).toFixed(1)}%
@@ -215,8 +226,8 @@ export class StockOfTheWeekService implements OnModuleInit {
         - Recent News/Buzz:
         ${f.newsSnippet}
         `,
-          )
-          .join('\n------------------------\n')}
+        )
+        .join('\n------------------------\n')}
         
         INSTRUCTIONS:
         1. Focus on the next 30 days. Look for catalysts (Results, Monthly Expiry trends, Sector rotation) that will play out over a month.
@@ -285,7 +296,7 @@ export class StockOfTheWeekService implements OnModuleInit {
             const match = detail.retryDelay.match(/(\d+)s/);
             if (match) delaySeconds = parseInt(match[1]) + 5;
           }
-        } catch (err) {}
+        } catch (err) { }
 
         this.aiConfig.handleQuotaExceeded(delaySeconds);
 
