@@ -283,6 +283,7 @@ model StockOfTheWeek {
   
   // Snapshot of key metrics at time of selection (for historical accuracy)
   priceAtSelection Float   @map("price_at_selection")
+  maxHigh          Float?  @map("max_high")
   targetPrice      Float?  @map("target_price")
   stopLoss         Float?  @map("stop_loss")
   

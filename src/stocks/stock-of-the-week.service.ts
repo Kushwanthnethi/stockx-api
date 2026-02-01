@@ -53,6 +53,9 @@ export class StockOfTheWeekService implements OnModuleInit {
       // Wait for 5s to ensure everything else is initialized
       setTimeout(() => this.handleWeeklySelection(), 5000);
     }
+
+    // Always run a sync for Max High on startup for active picks
+    setTimeout(() => this.syncMaxHigh(), 10000);
   }
 
   // Run every Sunday at 2:00 AM
@@ -160,6 +163,7 @@ export class StockOfTheWeekService implements OnModuleInit {
           convictionScore: finalScore,
           narrative: finalNarrative,
           priceAtSelection: winningPick.currentPrice,
+          maxHigh: winningPick.currentPrice,
           targetPrice: winningPick.currentPrice * 1.15,
           stopLoss: winningPick.currentPrice * 0.9,
         },
@@ -169,6 +173,7 @@ export class StockOfTheWeekService implements OnModuleInit {
           convictionScore: finalScore,
           narrative: finalNarrative,
           priceAtSelection: winningPick.currentPrice,
+          maxHigh: winningPick.currentPrice,
           targetPrice: winningPick.currentPrice * 1.15,
           stopLoss: winningPick.currentPrice * 0.9,
         },
@@ -382,6 +387,54 @@ export class StockOfTheWeekService implements OnModuleInit {
       include: { stock: true },
       skip: 1, // Skip the latest one (current)
     });
+  }
+
+  // Daily Sync for Max High - Runs every day at 6:00 PM IST (UTC 12:30 PM)
+  @Cron('0 13 * * *')
+  async syncMaxHigh() {
+    this.logger.log('Syncing Max High for all active Stock of the Week picks...');
+    try {
+      // Get picks that haven't been finalized (archived/closed)
+      // or those that are the current week's picks
+      const activePicks = await this.prisma.stockOfTheWeek.findMany({
+        where: {
+          finalPrice: null,
+        },
+      });
+
+      if (activePicks.length === 0) {
+        this.logger.log('No active picks requiring Max High sync.');
+        return;
+      }
+
+      this.logger.log(`Found ${activePicks.length} picks to sync.`);
+
+      for (const pick of activePicks) {
+        // FindOne logic includes currentPrice fetching from Yahoo
+        const currentData = await this.stocksService.findOne(pick.stockSymbol);
+
+        if (currentData && currentData.currentPrice) {
+          const currentPrice = currentData.currentPrice;
+          const oldMax = pick.maxHigh || pick.priceAtSelection;
+
+          if (currentPrice > oldMax) {
+            await this.prisma.stockOfTheWeek.update({
+              where: { id: pick.id },
+              data: { maxHigh: currentPrice },
+            });
+            this.logger.log(`Updated Max High for ${pick.stockSymbol}: ${currentPrice}`);
+          } else if (pick.maxHigh === null) {
+            // Initialize if somehow null
+            await this.prisma.stockOfTheWeek.update({
+              where: { id: pick.id },
+              data: { maxHigh: pick.priceAtSelection },
+            });
+          }
+        }
+      }
+    } catch (e) {
+      this.logger.error('Failed to sync Max High prices', e);
+    }
   }
 
   async reset() {
