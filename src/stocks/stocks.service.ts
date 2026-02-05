@@ -526,14 +526,26 @@ export class StocksService {
         const chunk = popularTickers.slice(i, i + chunkSize);
         const chunkPromises = chunk.map(async (symbol) => {
           try {
-            const res = await yahooFinance.quoteSummary(symbol, {
-              modules: [
-                'calendarEvents',
-                'price',
-                'financialData',
-                'defaultKeyStatistics',
-              ],
-            });
+            let res;
+            try {
+              res = await yahooFinance.quoteSummary(symbol, {
+                modules: [
+                  'calendarEvents',
+                  'price',
+                  'financialData',
+                  'defaultKeyStatistics',
+                ],
+              });
+            } catch (validationError: any) {
+              // Yahoo Finance throws on validation failure but often includes partial data in error.result
+              if (validationError.result) {
+                // console.warn(`Validation failed for ${symbol}, using partial result.`);
+                res = validationError.result;
+              } else {
+                throw validationError;
+              }
+            }
+
             const events = res.calendarEvents?.earnings;
             // Relaxed check: if no specific earnings date, maybe allow if we have past data?
             // For now, strict on earningsDate presence for "Calendar" purpose.
@@ -553,6 +565,10 @@ export class StocksService {
             const eps = res.defaultKeyStatistics?.trailingEps;
             const revenueGrowth = res.financialData?.revenueGrowth;
 
+            // Check Index Membership
+            const isNifty50 = NIFTY_50_STOCKS.includes(symbol);
+            const isMidcap100 = NIFTY_MIDCAP_100_STOCKS.includes(symbol);
+
             return {
               symbol,
               companyName: res.price?.shortName || symbol,
@@ -562,6 +578,8 @@ export class StocksService {
               profit: profit || 0,
               eps: eps || 0,
               revenueGrowth: revenueGrowth || 0,
+              isNifty50,   // Added for fallback filtering
+              isMidcap100, // Added for fallback filtering
               // Link to BSE Corporate Filings (Reliable source for original PDFs)
               pdfUrl: `https://www.bseindia.com/corporates/ann.html?scrip=${symbol.replace('.NS', '').replace('.BO', '')}&duration=Today`,
             };
