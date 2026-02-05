@@ -8,7 +8,7 @@ export class PostsService {
   constructor(
     private prisma: PrismaService,
     private notificationsService: NotificationsService,
-  ) {}
+  ) { }
 
   // ... (create and findAll remain same)
 
@@ -31,24 +31,55 @@ export class PostsService {
   async findAll(userId?: string, page: number = 1, limit: number = 10) {
     const skip = (page - 1) * limit;
 
-    // Build exclusion list if user is logged in
-    const whereClause: any = { isDeleted: false };
+    // Fetches in parallel for performance
+    if (userId) {
+      const [blocked, reported, posts] = await Promise.all([
+        this.prisma.block.findMany({
+          where: { blockerId: userId },
+          select: { blockedId: true },
+        }),
+        this.prisma.interaction.findMany({
+          where: { userId, type: 'REPORT' },
+          select: { postId: true },
+        }),
+        this.prisma.post.findMany({
+          where: { isDeleted: false }, // We filter ID/UserId later to avoid double query complexity, or we can do 2-step
+          // Actually, we can't do 2-step easily if we want purely parallel. 
+          // Better approach: Get blocked/reported first (fast), then get posts, then get likes/bookmarks (parallel).
+        })
+      ]);
+      // Wait, that changed the logic. The logical flow was:
+      // 1. Get Blocked/Reported
+      // 2. Get Posts (filtering out blocked/reported)
+      // 3. Get Likes/Bookmarks/Following FOR THOSE POSTS.
+
+      // So we can only parallelize Step 1 and Step 3.
+    }
+
+    // Let's rewrite strictly to parallelize where possible.
+
+    let blockedIds: string[] = [];
+    let reportedPostIds: string[] = [];
 
     if (userId) {
-      const blocked = await this.prisma.block.findMany({
-        where: { blockerId: userId },
-        select: { blockedId: true },
-      });
-      const blockedIds = blocked.map((b) => b.blockedId);
+      const [blocked, reported] = await Promise.all([
+        this.prisma.block.findMany({
+          where: { blockerId: userId },
+          select: { blockedId: true },
+        }),
+        this.prisma.interaction.findMany({
+          where: { userId, type: 'REPORT' },
+          select: { postId: true },
+        }),
+      ]);
+      blockedIds = blocked.map((b) => b.blockedId);
+      reportedPostIds = reported.map((r) => r.postId);
+    }
 
-      const reported = await this.prisma.interaction.findMany({
-        where: { userId, type: 'REPORT' },
-        select: { postId: true },
-      });
-      const reportedPostIds = reported.map((r) => r.postId);
-
-      whereClause.userId = { notIn: blockedIds };
-      whereClause.id = { notIn: reportedPostIds };
+    const whereClause: any = { isDeleted: false };
+    if (userId) {
+      if (blockedIds.length > 0) whereClause.userId = { notIn: blockedIds };
+      if (reportedPostIds.length > 0) whereClause.id = { notIn: reportedPostIds };
     }
 
     const posts = await this.prisma.post.findMany({
@@ -69,31 +100,42 @@ export class PostsService {
       },
     });
 
-    if (userId) {
-      const likedPosts = await this.prisma.interaction.findMany({
-        where: {
-          userId: userId,
-          type: 'LIKE',
-          postId: { in: posts.map((p) => p.id) },
-        },
-        select: { postId: true },
+    if (userId && posts.length > 0) {
+      const postIds = posts.map((p) => p.id);
+      const userIds = new Set(posts.map((p) => p.userId));
+      // Also include original post users for following check
+      posts.forEach(p => {
+        if (p.originalPost) userIds.add(p.originalPost.userId);
       });
+
+      const [likedPosts, bookmarkedPosts, following] = await Promise.all([
+        this.prisma.interaction.findMany({
+          where: {
+            userId: userId,
+            type: 'LIKE',
+            postId: { in: postIds },
+          },
+          select: { postId: true },
+        }),
+        this.prisma.interaction.findMany({
+          where: {
+            userId: userId,
+            type: 'BOOKMARK',
+            postId: { in: postIds },
+          },
+          select: { postId: true },
+        }),
+        this.prisma.follow.findMany({
+          where: {
+            followerId: userId,
+            followeeId: { in: Array.from(userIds) }
+          },
+          select: { followeeId: true },
+        })
+      ]);
+
       const likedPostIds = new Set(likedPosts.map((lp) => lp.postId));
-
-      const bookmarkedPosts = await this.prisma.interaction.findMany({
-        where: {
-          userId: userId,
-          type: 'BOOKMARK',
-          postId: { in: posts.map((p) => p.id) },
-        },
-        select: { postId: true },
-      });
       const bookmarkedPostIds = new Set(bookmarkedPosts.map((bp) => bp.postId));
-
-      const following = await this.prisma.follow.findMany({
-        where: { followerId: userId },
-        select: { followeeId: true },
-      });
       const followingIds = new Set(following.map((f) => f.followeeId));
 
       return posts.map((post) => ({
@@ -103,9 +145,9 @@ export class PostsService {
         isFollowingAuthor: followingIds.has(post.userId),
         originalPost: post.originalPost
           ? {
-              ...post.originalPost,
-              isFollowingAuthor: followingIds.has(post.originalPost.userId),
-            }
+            ...post.originalPost,
+            isFollowingAuthor: followingIds.has(post.originalPost.userId),
+          }
           : null,
       }));
     }
@@ -426,9 +468,9 @@ export class PostsService {
         isFollowingAuthor: followingIds.has(post.userId),
         originalPost: post.originalPost
           ? {
-              ...post.originalPost,
-              isFollowingAuthor: followingIds.has(post.originalPost.userId),
-            }
+            ...post.originalPost,
+            isFollowingAuthor: followingIds.has(post.originalPost.userId),
+          }
           : null,
       }));
     }

@@ -291,6 +291,87 @@ export class StocksService {
     return stock;
   }
 
+  async updateEarnings(symbol: string) {
+    try {
+      const yahooFinance = await this.getYahooClient();
+
+      // Handle suffix logic
+      let querySymbol = symbol;
+      if (!symbol.includes('.') && !symbol.startsWith('^')) {
+        querySymbol = `${symbol}.NS`;
+      }
+
+      const res = await yahooFinance.quoteSummary(querySymbol, {
+        modules: ['calendarEvents', 'earnings'],
+      });
+
+      const events = res.calendarEvents?.earnings;
+      // Get nearest date
+      let earningsDate: Date | null = null;
+      if (events && events.earningsDate && events.earningsDate.length > 0) {
+        earningsDate = new Date(events.earningsDate[0]);
+      }
+
+      const resultStatus = earningsDate
+        ? (earningsDate < new Date() ? 'DECLARED' : 'UPCOMING')
+        : null;
+
+      // Update in DB
+      await this.prisma.stock.upsert({
+        where: { symbol },
+        update: {
+          earningsDate,
+          resultStatus,
+          lastUpdated: new Date()
+        },
+        create: {
+          symbol,
+          companyName: symbol, // Fallback
+          exchange: 'NSE',
+          earningsDate,
+          resultStatus,
+          lastUpdated: new Date()
+        }
+      });
+
+      return { symbol, earningsDate, resultStatus };
+
+    } catch (error) {
+      console.error(`Failed to update earnings for ${symbol}`, error);
+      return null;
+    }
+  }
+
+  async getEarningsFromDB(limit = 100) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const stocks = await this.prisma.stock.findMany({
+      where: {
+        earningsDate: { not: null }
+      },
+      orderBy: { earningsDate: 'asc' },
+      take: limit
+    });
+
+    // Transform to frontend format
+    return stocks.map(s => ({
+      symbol: s.symbol,
+      companyName: s.companyName,
+      date: s.earningsDate,
+      formattedDate: s.earningsDate?.toDateString(),
+      // We can create a valid BSE link dynamically
+      pdfUrl: `https://www.bseindia.com/corporates/ann.html?scrip=${s.symbol.replace('.NS', '').replace('.BO', '')}&duration=Today`,
+      revenue: s.totalRevenue || 0,
+      profit: s.ebitda || 0,
+      eps: 0,
+      revenueGrowth: s.revenueGrowth || 0
+    })).sort((a: any, b: any) => {
+      // Sort closest to Today first
+      return Math.abs(new Date(a.date).getTime() - today.getTime()) - Math.abs(new Date(b.date).getTime() - today.getTime());
+    });
+  }
+
   async getBatch(symbols: string[]) {
     if (!symbols || symbols.length === 0) return [];
 
@@ -337,6 +418,15 @@ export class StocksService {
       return this.earningsCache;
     }
 
+    // Use dynamic DB list if available, else fallback to constants
+    const dbEarnings = await this.getEarningsFromDB();
+    if (dbEarnings.length > 0) {
+      this.earningsCache = dbEarnings;
+      this.lastEarningsFetch = now;
+      return dbEarnings;
+    }
+
+    // Fallback to hardcoded list if DB is empty (first run)
     const popularTickers = [
       // NIFTY 50
       'RELIANCE.NS',

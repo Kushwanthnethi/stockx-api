@@ -94,6 +94,12 @@ model Stock {
   
   // New Flag for Verdicts
   isNifty50     Boolean  @default(false) @map("is_nifty_50")
+  isMidcap100   Boolean  @default(false) @map("is_midcap_100")
+
+  // Earnings Calendar Fields
+  earningsDate   DateTime? @map("earnings_date")
+  lastResultDate DateTime? @map("last_result_date")
+  resultStatus   String?   @map("result_status") // "UPCOMING" | "DECLARED"
 
   posts       PostStock[]
   investorStocks InvestorStock[]

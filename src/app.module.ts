@@ -13,6 +13,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ConfigModule } from '@nestjs/config';
 import { AdminModule } from './admin/admin.module';
+import { CronModule } from './cron/cron.module';
 
 @Module({
   imports: [
@@ -27,9 +28,11 @@ import { AdminModule } from './admin/admin.module';
     NotificationsModule,
     InvestorsModule,
     InvestorsModule,
+    InvestorsModule,
     AdminModule,
+    CronModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }
