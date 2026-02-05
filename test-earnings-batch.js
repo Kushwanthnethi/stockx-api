@@ -1,38 +1,17 @@
 const { execSync } = require('child_process');
 
-console.log('Starting verification simulation: Batch Ingestion');
+console.log('Starting verification simulation: Constant Membership Check');
 
 // Simulate calling the scheduler logic manually
-// In a real e2e test we would call the API, but here we can just verify the Yahoo Finance connectivity
-// and data structure by running a small script that mimics the service.
+// In a real e2e test we would call the API, but here we are verifying that the symbols are correctly defined in constants.
 
-const yahooFinance = require('yahoo-finance2').default || require('yahoo-finance2');
-
+// Simulate check against constants
+const { NIFTY_50, MIDCAP_100 } = require('./src/cron/constants');
 const TEST_SYMBOLS = ['RELIANCE.NS', 'TCS.NS', 'ZOMATO.NS', 'TRENT.NS'];
 
-async function testBatch() {
-    console.log(`Processing batch of ${TEST_SYMBOLS.length} stocks...`);
-    const start = Date.now();
-
-    for (const symbol of TEST_SYMBOLS) {
-        try {
-            console.log(`Fetching ${symbol}...`);
-            const res = await yahooFinance.quoteSummary(symbol, { modules: ['calendarEvents', 'earnings'] });
-
-            const events = res.calendarEvents?.earnings;
-            const earningsDate = events?.earningsDate?.[0];
-
-            console.log(`- ${symbol}: Earnings Date: ${earningsDate ? new Date(earningsDate).toDateString() : 'Not Found'}`);
-
-            // Artificial delay to mimic "Sipping" rate limit protection
-            await new Promise(r => setTimeout(r, 1000));
-        } catch (e) {
-            console.error(`- ${symbol}: Failed`, e.message);
-        }
-    }
-
-    const duration = (Date.now() - start) / 1000;
-    console.log(`Batch finished in ${duration.toFixed(2)}s`);
-}
-
-testBatch();
+console.log('Verifying Membership Logic:');
+TEST_SYMBOLS.forEach(sym => {
+    const n50 = NIFTY_50.includes(sym);
+    const mid = MIDCAP_100.includes(sym);
+    console.log(`${sym} -> Nifty50: ${n50}, Midcap100: ${mid}`);
+});

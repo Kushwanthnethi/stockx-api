@@ -94,7 +94,7 @@ model Stock {
   
   // New Flag for Verdicts
   isNifty50     Boolean  @default(false) @map("is_nifty_50")
-  isMidcap100   Boolean  @default(false) @map("is_midcap_100")
+  isMidcap100   Boolean  @default(false) @map("is_midcap_100") // Added for filtering
 
   // Earnings Calendar Fields
   earningsDate   DateTime? @map("earnings_date")

@@ -4,6 +4,7 @@ import {
   calculateTechnicalSignals,
   generateSyntheticRationale,
 } from './utils/tech-analysis.util';
+import { NIFTY_50_STOCKS, NIFTY_MIDCAP_100_STOCKS } from '../cron/constants';
 
 @Injectable()
 export class StocksService {
@@ -316,12 +317,18 @@ export class StocksService {
         ? (earningsDate < new Date() ? 'DECLARED' : 'UPCOMING')
         : null;
 
+      // Check Index Membership from Constants
+      const isNifty50 = NIFTY_50_STOCKS.includes(symbol);
+      const isMidcap100 = NIFTY_MIDCAP_100_STOCKS.includes(symbol);
+
       // Update in DB
       await this.prisma.stock.upsert({
         where: { symbol },
         update: {
           earningsDate,
           resultStatus,
+          isNifty50,
+          isMidcap100,
           lastUpdated: new Date()
         },
         create: {
@@ -330,6 +337,8 @@ export class StocksService {
           exchange: 'NSE',
           earningsDate,
           resultStatus,
+          isNifty50,
+          isMidcap100: isMidcap100,
           lastUpdated: new Date()
         }
       });
@@ -365,7 +374,9 @@ export class StocksService {
       revenue: s.totalRevenue || 0,
       profit: s.ebitda || 0,
       eps: 0,
-      revenueGrowth: s.revenueGrowth || 0
+      revenueGrowth: s.revenueGrowth || 0,
+      isNifty50: s.isNifty50,
+      isMidcap100: s.isMidcap100 // Ensure these are selected in findMany
     })).sort((a: any, b: any) => {
       // Sort closest to Today first
       return Math.abs(new Date(a.date).getTime() - today.getTime()) - Math.abs(new Date(b.date).getTime() - today.getTime());
