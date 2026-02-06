@@ -130,6 +130,7 @@ export class BseScraperService {
                     await new Promise(r => setTimeout(r, 1000)); // Wait 1s
 
                     const files = fs.readdirSync(downloadDir);
+                    console.log(`[${i}/${maxRetries}] Files in ${downloadDir}:`, files);
                     // Find the most recently created PDF file that isn't a partial download (.crdownload)
                     const pdfFiles = files.filter(f => f.endsWith('.pdf'));
 
@@ -149,7 +150,8 @@ export class BseScraperService {
                 }
 
                 if (!downloadedFile) {
-                    throw new Error('Download timeout: File did not appear in directory within 30s');
+                    const files = fs.readdirSync(downloadDir);
+                    throw new Error(`Download timeout: File did not appear in directory within ${maxRetries}s. Files present: ${JSON.stringify(files)}`);
                 }
 
                 // 4. Rename to our meaningful filename
