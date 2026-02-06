@@ -124,7 +124,7 @@ export class BseScraperService {
                 console.log('Waiting for file to appear in:', downloadDir);
 
                 let downloadedFile: string | null = null;
-                const maxRetries = 30; // 30 seconds (if 1s interval)
+                const maxRetries = 300; // 300 seconds (5 minutes) - Increased for slow Render Node env
 
                 for (let i = 0; i < maxRetries; i++) {
                     await new Promise(r => setTimeout(r, 1000)); // Wait 1s
