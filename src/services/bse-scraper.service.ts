@@ -16,17 +16,26 @@ export class BseScraperService {
         console.log(`Starting scrape for ${scripCode}...`);
 
         // Launch logic tailored for Render/Cloud environments
+        // "Hail Mary" Launch Config: Force a writable profile path
+        const userDataDir = path.join('/tmp', `puppeteer_user_data_${Date.now()}`);
+        if (!fs.existsSync(userDataDir)) {
+            fs.mkdirSync(userDataDir, { recursive: true });
+        }
+
         const browser = await puppeteer.launch({
-            headless: true, // Use new Headless mode
+            headless: true,
+            userDataDir: userDataDir,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', // Critical for Docker/Render environments to avoid shared memory crashes
+                '--disable-dev-shm-usage', // Critical for Docker/Render environments
                 '--disable-accelerated-2d-canvas',
                 '--no-first-run',
                 '--no-zygote',
-                '--single-process', // <- this one doesn't works in Windows
-                '--disable-gpu'
+                '--single-process',
+                '--disable-gpu',
+                // Chrome 117+ new headless download fix: ensure no bubbling alert blocks downloads
+                '--disable-features=DownloadBubble,DownloadBubbleV2'
             ],
             // If we are on Render, we might need to specify executablePath if the buildpack puts it elsewhere.
             // Usually, the buildpack sets PUPPETEER_EXECUTABLE_PATH env var, which puppeteer respects automatically.
