@@ -23,7 +23,7 @@ export class BseScraperService {
         }
 
         const browser = await puppeteer.launch({
-            headless: true,
+            headless: 'new', // Explicitly use new Headless mode for better behavior
             userDataDir: userDataDir,
             args: [
                 '--no-sandbox',
@@ -50,8 +50,18 @@ export class BseScraperService {
             // Optimization: Request interception removed to reduce potential breakage
             // await page.setRequestInterception(true);
 
-            // Capture browser console logs
-            page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+            // Capture browser console logs with full details
+            page.on('console', async msg => {
+                const args = await Promise.all(msg.args().map(arg => arg.jsonValue()));
+                console.log('PAGE LOG:', msg.text(), args);
+            });
+
+            // Anti-detection: Mask WebDriver property
+            await page.evaluateOnNewDocument(() => {
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => false,
+                });
+            });
 
             // Set a real User-Agent to avoid immediate 403s
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -102,6 +112,15 @@ export class BseScraperService {
             } catch (cdpError) {
                 console.error('Failed to set CDP download behavior:', cdpError);
             }
+
+            // Also try to set it on the browser context level if possible (extra safety)
+            try {
+                // @ts-ignore
+                if (browser.defaultBrowserContext().overridePermissions) {
+                    // @ts-ignore
+                    await browser.defaultBrowserContext().overridePermissions(this.BSE_URL, ['read-clipboard', 'clipboard-read', 'clipboard-write']);
+                }
+            } catch (e) { }
 
             // Monitor new targets (popups)
             browser.on('targetcreated', async (target) => {
