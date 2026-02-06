@@ -95,14 +95,58 @@ export class BseScraperService {
 
             // If it's a javascript: link, we need to click it and intercept the download event
             if (pdfLink.includes('javascript:')) {
-                // Advanced: Click and wait for download
-                // For now, let's assume valid direct links or simplified logic for this stage.
-                // In reality, BSE often uses direct links in the 'XBRL/PDF' columns for recent results.
-                // Let's assume we grabbed a direct link for POC.
+                console.log('Detected PostBack link, initiating click download...');
 
-                // Fallback: If we can't get a direct link, we might return null for now.
-                console.warn('Only found javascript postback link. Advanced click handling required.');
-                return null;
+                // 1. Configure download behavior using CDP
+                const client = await page.target().createCDPSession();
+                await client.send('Page.setDownloadBehavior', {
+                    behavior: 'allow',
+                    downloadPath: downloadDir,
+                });
+
+                // 2. Click the link
+                // We use the same selector that found the link
+                await page.click('#ContentPlaceHolder1_lnkDownload');
+
+                // 3. Wait for file to appear
+                // We poll the directory for a new .pdf file
+                console.log('Waiting for file to appear in:', downloadDir);
+
+                let downloadedFile: string | null = null;
+                const maxRetries = 30; // 30 seconds (if 1s interval)
+
+                for (let i = 0; i < maxRetries; i++) {
+                    await new Promise(r => setTimeout(r, 1000)); // Wait 1s
+
+                    const files = fs.readdirSync(downloadDir);
+                    // Find the most recently created PDF file that isn't a partial download (.crdownload)
+                    const pdfFiles = files.filter(f => f.endsWith('.pdf'));
+
+                    if (pdfFiles.length > 0) {
+                        // Get the latest one
+                        const latestFile = pdfFiles.map(f => ({
+                            name: f,
+                            time: fs.statSync(path.join(downloadDir, f)).mtime.getTime()
+                        })).sort((a, b) => b.time - a.time)[0];
+
+                        // Ensure it's new (created in the last minute)
+                        if (Date.now() - latestFile.time < 60000) {
+                            downloadedFile = path.join(downloadDir, latestFile.name);
+                            break;
+                        }
+                    }
+                }
+
+                if (!downloadedFile) {
+                    throw new Error('Download timeout: File did not appear in directory within 30s');
+                }
+
+                // 4. Rename to our meaningful filename
+                const finalPath = path.join(downloadDir, `${scripCode}_${Date.now()}.pdf`);
+                fs.renameSync(downloadedFile, finalPath);
+
+                console.log(`Downloaded (via Click) to: ${finalPath}`);
+                return finalPath;
             }
 
             await FileDownloader.downloadFile(pdfLink, filePath);
