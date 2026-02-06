@@ -34,7 +34,12 @@ export class ScrapeController {
 
         } catch (error) {
             console.error('Scrape controller error:', error);
-            throw new HttpException('Failed to scrape data', HttpStatus.INTERNAL_SERVER_ERROR);
+            throw new HttpException({
+                status: HttpStatus.INTERNAL_SERVER_ERROR,
+                error: 'Failed to scrape data',
+                message: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : null
+            }, HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 }
