@@ -2,7 +2,7 @@
 import { Controller, Get, Param, HttpException, HttpStatus } from '@nestjs/common';
 import { BseScraperService } from '../services/bse-scraper.service';
 
-@Controller('scrape')
+@Controller('api/scrape')
 export class ScrapeController {
 
     @Get(':symbol')
