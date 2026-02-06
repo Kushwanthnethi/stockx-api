@@ -76,10 +76,28 @@ export class BseScraperService {
             console.log(`Found PDF Link: ${pdfLink}`);
 
             // Download the file
-            const downloadDir = path.join(process.cwd(), 'downloads');
+            // Use /tmp for Render compatibility (guaranteed writable)
+            const downloadDir = path.join('/tmp', 'downloads');
             if (!fs.existsSync(downloadDir)) {
                 fs.mkdirSync(downloadDir, { recursive: true });
             }
+
+            // Setup CDP immediately for reliability
+            try {
+                const client = await page.createCDPSession();
+                await client.send('Page.setDownloadBehavior', {
+                    behavior: 'allow',
+                    downloadPath: downloadDir,
+                });
+                console.log('CDP Download Behavior set to:', downloadDir);
+            } catch (cdpError) {
+                console.error('Failed to set CDP download behavior:', cdpError);
+            }
+
+            // Monitor new targets (popups)
+            browser.on('targetcreated', async (target) => {
+                console.log('New browser target created:', target.type(), target.url());
+            });
 
             const fileName = `${scripCode}_${Date.now()}.pdf`;
             const filePath = path.join(downloadDir, fileName);
@@ -94,8 +112,8 @@ export class BseScraperService {
             if (pdfLink.includes('javascript:')) {
                 console.log('Detected PostBack link, initiating click download...');
 
-                // 1. Configure download behavior using CDP
-                const client = await page.target().createCDPSession();
+                // Re-enforce download behavior (just in case)
+                const client = await page.createCDPSession();
                 await client.send('Page.setDownloadBehavior', {
                     behavior: 'allow',
                     downloadPath: downloadDir,
