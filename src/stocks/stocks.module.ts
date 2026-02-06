@@ -8,10 +8,11 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { VerdictsService } from './verdicts.service';
 import { VerdictsController } from './verdicts.controller';
 import { AIConfigService } from './ai-config.service';
+import { ScrapeController } from '../controllers/scrape.controller';
 
 @Module({
   imports: [PrismaModule, ConfigModule],
-  controllers: [StocksController, StockOfTheWeekController, VerdictsController],
+  controllers: [StocksController, StockOfTheWeekController, VerdictsController, ScrapeController],
   providers: [
     StocksService,
     StockOfTheWeekService,
