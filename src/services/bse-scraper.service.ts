@@ -105,8 +105,19 @@ export class BseScraperService {
                 });
 
                 // 2. Click the link
-                // We use the same selector that found the link
-                await page.click('#ContentPlaceHolder1_lnkDownload');
+                // We use DOM click() via evaluate because puppeteer's page.click() checks for visibility/overlays
+                // and often fails on these old ASP.NET sites if the element is slightly covered or off-screen.
+                await page.evaluate(() => {
+                    const el = document.querySelector('#ContentPlaceHolder1_lnkDownload') as HTMLElement;
+                    if (el) {
+                        el.click();
+                    } else {
+                        // Fallback: try to find any link with .pdf logic again if ID fails
+                        const anchors = Array.from(document.querySelectorAll('a'));
+                        const pdfAnchor = anchors.find(a => a.href && a.href.toLowerCase().includes('.pdf'));
+                        if (pdfAnchor) pdfAnchor.click();
+                    }
+                });
 
                 // 3. Wait for file to appear
                 // We poll the directory for a new .pdf file
