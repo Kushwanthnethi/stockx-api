@@ -3,10 +3,9 @@
 set -o errexit
 
 npm install
-npm run build
 
-# Store/Install Chrome in a specific cache directory
-# Puppeteer will download Chrome to ~/.cache/puppeteer by default during npm install
-# We just need to ensure dependencies are met.
-# But Render native node might lack libs.
-# If this fails, we strongly suggest Docker.
+# Excplicitly ensure Chrome is downloaded
+# This uses the PUPPETEER_CACHE_DIR env var we set in Render
+npx puppeteer browsers install chrome
+
+npm run build
