@@ -23,7 +23,7 @@ export class BseScraperService {
         }
 
         const browser = await puppeteer.launch({
-            headless: 'new', // Explicitly use new Headless mode for better behavior
+            headless: true, // Use new Headless mode (default in newer versions)
             userDataDir: userDataDir,
             args: [
                 '--no-sandbox',
