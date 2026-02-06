@@ -147,27 +147,53 @@ export class BseScraperService {
                     downloadPath: downloadDir,
                 });
 
-                // 2. Click the link
-                console.log('Waiting for download button to be ready...');
-                try {
-                    await page.waitForSelector('#ContentPlaceHolder1_lnkDownload', { timeout: 15000 });
-                } catch (e) {
-                    console.warn('Selector wait timed out, attempting click anyway...');
-                }
+                // 2. Click the link? NO. The click is failing in Docker (JSHandle@error).
+                // We will manually construct the POST request that the button WOULD have sent.
+                // Extract arguments from: javascript:__doPostBack('ctl00$ContentPlaceHolder1$lnkDownload','')
+                console.log('Attempting Manual POST bypass...');
 
-                // We use DOM click() via evaluate because puppeteer's page.click() checks for visibility/overlays
-                // and often fails on these old ASP.NET sites if the element is slightly covered or off-screen.
-                await page.evaluate(() => {
-                    const el = document.querySelector('#ContentPlaceHolder1_lnkDownload') as HTMLElement;
-                    if (el) {
-                        el.click();
-                    } else {
-                        // Fallback: try to find any link with .pdf logic again if ID fails
-                        const anchors = Array.from(document.querySelectorAll('a'));
-                        const pdfAnchor = anchors.find(a => a.href && a.href.toLowerCase().includes('.pdf'));
-                        if (pdfAnchor) pdfAnchor.click();
+                await page.evaluate((linkHref) => {
+                    // 1. Parse the arguments
+                    const match = /__doPostBack\('([^']*)','([^']*)'\)/.exec(linkHref);
+                    if (!match) {
+                        throw new Error('Could not parse __doPostBack arguments from link: ' + linkHref);
                     }
-                });
+                    const target = match[1];
+                    const argument = match[2];
+
+                    console.log(`Manual POST: Target=${target}, Arg=${argument}`);
+
+                    // 2. Find the form (ASP.NET usually has one main form)
+                    const form = document.querySelector('form') as HTMLFormElement;
+                    if (!form) throw new Error('No form found on page');
+
+                    // 3. Set hidden fields
+                    // __EVENTTARGET
+                    let targetField = document.getElementById('__EVENTTARGET') as HTMLInputElement;
+                    if (!targetField) {
+                        targetField = document.createElement('input');
+                        targetField.type = 'hidden';
+                        targetField.id = '__EVENTTARGET';
+                        targetField.name = '__EVENTTARGET';
+                        form.appendChild(targetField);
+                    }
+                    targetField.value = target;
+
+                    // __EVENTARGUMENT
+                    let argField = document.getElementById('__EVENTARGUMENT') as HTMLInputElement;
+                    if (!argField) {
+                        argField = document.createElement('input');
+                        argField.type = 'hidden';
+                        argField.id = '__EVENTARGUMENT';
+                        argField.name = '__EVENTARGUMENT';
+                        form.appendChild(argField);
+                    }
+                    argField.value = argument;
+
+                    // 4. SUBMIT!
+                    form.submit();
+                    console.log('Form submitted manually.');
+                }, pdfLink);
 
                 // 3. Wait for file to appear
                 // We poll the directory for a new .pdf file
