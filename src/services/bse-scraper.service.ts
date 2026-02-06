@@ -38,14 +38,11 @@ export class BseScraperService {
             const page = await browser.newPage();
 
             // Optimization: Block images/fonts/css to speed up load
-            await page.setRequestInterception(true);
-            page.on('request', (req) => {
-                if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
-                    req.abort();
-                } else {
-                    req.continue();
-                }
-            });
+            // Optimization: Request interception removed to reduce potential breakage
+            // await page.setRequestInterception(true);
+
+            // Capture browser console logs
+            page.on('console', msg => console.log('PAGE LOG:', msg.text()));
 
             // Set a real User-Agent to avoid immediate 403s
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -105,6 +102,13 @@ export class BseScraperService {
                 });
 
                 // 2. Click the link
+                console.log('Waiting for download button to be ready...');
+                try {
+                    await page.waitForSelector('#ContentPlaceHolder1_lnkDownload', { timeout: 15000 });
+                } catch (e) {
+                    console.warn('Selector wait timed out, attempting click anyway...');
+                }
+
                 // We use DOM click() via evaluate because puppeteer's page.click() checks for visibility/overlays
                 // and often fails on these old ASP.NET sites if the element is slightly covered or off-screen.
                 await page.evaluate(() => {
