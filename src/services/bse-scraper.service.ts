@@ -34,7 +34,18 @@ export class BseScraperService {
         });
 
         try {
+
             const page = await browser.newPage();
+
+            // Optimization: Block images/fonts/css to speed up load
+            await page.setRequestInterception(true);
+            page.on('request', (req) => {
+                if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+                    req.abort();
+                } else {
+                    req.continue();
+                }
+            });
 
             // Set a real User-Agent to avoid immediate 403s
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -43,7 +54,8 @@ export class BseScraperService {
             const targetUrl = `${this.BSE_URL}?Code=${scripCode}&Company=${encodeURIComponent(companyName)}&qtr=&RType=D`; // RType=D for Detailed
             console.log(`Navigating to: ${targetUrl}`);
 
-            await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+            // Changed to 'domcontentloaded' for speed (we don't need full network idle)
+            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
 
             // Logic to find the PDF link
             // We look for the "Download" icon or link. BSE structure varies, but usually it's an anchor with .pdf or onclick
