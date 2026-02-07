@@ -99,9 +99,8 @@ export class BseScraperService {
             // ---------------------------------------------------------
             // THE LINK HUNTER: Find the direct PDF link
             // ---------------------------------------------------------
-            console.log('Hunting for direct PDF links...');
 
-            // 1. Dump ALL links to logs for debugging
+            // 1. Get all links
             const allLinks = await page.evaluate(() => {
                 return Array.from(document.querySelectorAll('a'))
                     .map(a => ({
@@ -111,9 +110,6 @@ export class BseScraperService {
                     .filter(a => a.href && a.href.length > 0);
             });
 
-            console.log('Found ' + allLinks.length + ' links on page.');
-            console.log('ALL LINKS DUMP:', JSON.stringify(allLinks, null, 2));
-
             // 2. Check for "AttachLive" or ".pdf" which are direct links
             const directPdfLink = allLinks.find(a =>
                 (a.href.toLowerCase().includes('attachlive') || a.href.toLowerCase().endsWith('.pdf')) &&
@@ -121,7 +117,6 @@ export class BseScraperService {
             );
 
             if (directPdfLink) {
-                console.log('🎯 DIRECT PDF LINK FOUND:', directPdfLink.href);
                 // Download directly using axios
                 const downloadDir = path.join('/tmp', 'downloads');
                 if (!fs.existsSync(downloadDir)) {
@@ -131,91 +126,11 @@ export class BseScraperService {
                 const filePath = path.join(downloadDir, fileName);
 
                 await FileDownloader.downloadFile(directPdfLink.href, filePath);
-                console.log(`Downloaded Direct Link to: ${filePath}`);
                 return filePath;
             }
 
-            console.log('No direct PDF link found. Falling back to PostBack...');
-
-            // ---------------------------------------------------------
-            // THE AXIOS BYPASS (DISABLED FOR NOW to debug links)
-            // ---------------------------------------------------------
-            if (!pdfLink) return null;
-
-            // 1. Get the cookies from the page (session persistence)
-            const cookies = await page.cookies();
-            const cookieString = cookies.map((c: any) => `${c.name}=${c.value}`).join('; ');
-
-            // 2. Extract the hidden ASP.NET form fields (ViewState, etc.)
-            const formData = await page.evaluate(() => {
-                const getInput = (id: string) => (document.getElementById(id) as HTMLInputElement)?.value || '';
-                return {
-                    '__VIEWSTATE': getInput('__VIEWSTATE'),
-                    '__VIEWSTATEGENERATOR': getInput('__VIEWSTATEGENERATOR'),
-                    '__EVENTVALIDATION': getInput('__EVENTVALIDATION'),
-                };
-            });
-
-            console.log('Extracted ASP.NET tokens.');
-
-            // 3. Extract the __doPostBack arguments from the link
-            let target = '';
-            let argument = '';
-            if (pdfLink.includes('javascript:')) {
-                const match = /__doPostBack\('([^']*)','([^']*)'\)/.exec(pdfLink);
-                if (match) {
-                    target = match[1];
-                    argument = match[2];
-                }
-            }
-
-            console.log(`Preparing Axios POST: Target=${target}`);
-
-            // 4. Construct the full payload
-            const payload = {
-                ...formData,
-                '__EVENTTARGET': target,
-                '__EVENTARGUMENT': argument,
-            };
-
-            // 5. Send POST request directly
-            // Use /tmp for Render compatibility
-            const downloadDir = path.join('/tmp', 'downloads');
-            if (!fs.existsSync(downloadDir)) {
-                fs.mkdirSync(downloadDir, { recursive: true });
-            }
-            const fileName = `${scripCode}_${Date.now()}.pdf`;
-            const filePath = path.join(downloadDir, fileName);
-
-            /*
-            console.log('Sending direct HTTP POST request...');
-            const response = await axios({
-                method: 'post',
-                url: page.url(), // Use current page URL (results.aspx?...)
-                data: qs.stringify(payload),
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Cookie': cookieString,
-                    'User-Agent': await page.browser().userAgent(),
-                    'Referer': page.url()
-                },
-                responseType: 'stream'
-            });
-
-            // 6. Pipe to file
-            const writer = fs.createWriteStream(filePath);
-            response.data.pipe(writer);
-
-            await new Promise<void>((resolve, reject) => {
-                writer.on('finish', () => resolve());
-                writer.on('error', reject);
-            });
-
-            console.log(`Direct Download Successful: ${filePath}`);
-            return filePath;
-            */
-
             // If we reach here, we didn't find a direct link (and bypass is disabled)
+            console.warn('Could not find direct PDF link. Scraper may need update.');
             return null;
 
         } catch (error) {
