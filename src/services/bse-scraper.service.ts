@@ -215,6 +215,9 @@ export class BseScraperService {
             return filePath;
             */
 
+            // If we reach here, we didn't find a direct link (and bypass is disabled)
+            return null;
+
         } catch (error) {
             console.error('Scraping failed:', error);
             try {
