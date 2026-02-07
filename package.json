@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@napi-rs/canvas": "^0.1.90",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
@@ -61,7 +62,6 @@
     "@types/node": "^22.10.7",
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/passport-jwt": "^4.0.1",
-    "@types/pdf-parse": "^1.1.5",
     "@types/supertest": "^6.0.2",
     "dotenv": "^17.2.3",
     "eslint": "^9.18.0",
