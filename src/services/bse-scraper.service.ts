@@ -101,7 +101,7 @@ export class BseScraperService {
 
             // 1. Get the cookies from the page (session persistence)
             const cookies = await page.cookies();
-            const cookieString = cookies.map((c: Protocol.Network.Cookie) => `${c.name}=${c.value}`).join('; ');
+            const cookieString = cookies.map((c: any) => `${c.name}=${c.value}`).join('; ');
 
             // 2. Extract the hidden ASP.NET form fields (ViewState, etc.)
             const formData = await page.evaluate(() => {
@@ -169,8 +169,8 @@ export class BseScraperService {
             const writer = fs.createWriteStream(filePath);
             response.data.pipe(writer);
 
-            await new Promise((resolve, reject) => {
-                writer.on('finish', resolve);
+            await new Promise<void>((resolve, reject) => {
+                writer.on('finish', () => resolve());
                 writer.on('error', reject);
             });
 
