@@ -1,6 +1,9 @@
 
 import axios from 'axios';
 import * as qs from 'qs';
+import * as fs from 'fs';
+import * as path from 'path';
+import puppeteer, { ConsoleMessage, Protocol } from 'puppeteer';
 
 export class BseScraperService {
     private static readonly BSE_URL = 'https://www.bseindia.com/corporates/results.aspx';
@@ -49,8 +52,8 @@ export class BseScraperService {
             // await page.setRequestInterception(true);
 
             // Capture browser console logs with full details
-            page.on('console', async msg => {
-                const args = await Promise.all(msg.args().map(arg => arg.jsonValue()));
+            page.on('console', async (msg: ConsoleMessage) => {
+                const args = await Promise.all(msg.args().map((arg: any) => arg.jsonValue()));
                 console.log('PAGE LOG:', msg.text(), args);
             });
 
@@ -98,7 +101,7 @@ export class BseScraperService {
 
             // 1. Get the cookies from the page (session persistence)
             const cookies = await page.cookies();
-            const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+            const cookieString = cookies.map((c: Protocol.Network.Cookie) => `${c.name}=${c.value}`).join('; ');
 
             // 2. Extract the hidden ASP.NET form fields (ViewState, etc.)
             const formData = await page.evaluate(() => {
