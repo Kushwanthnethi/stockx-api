@@ -1,8 +1,6 @@
 
-import puppeteer from 'puppeteer';
-import * as path from 'path';
-import * as fs from 'fs';
-import { FileDownloader } from '../utils/file-downloader';
+import axios from 'axios';
+import * as qs from 'qs';
 
 export class BseScraperService {
     private static readonly BSE_URL = 'https://www.bseindia.com/corporates/results.aspx';
@@ -94,152 +92,86 @@ export class BseScraperService {
 
             console.log(`Found PDF Link: ${pdfLink}`);
 
-            // Download the file
-            // Use /tmp for Render compatibility (guaranteed writable)
+            // ---------------------------------------------------------
+            // THE AXIOS BYPASS: Stop using Browser Download Manager
+            // ---------------------------------------------------------
+
+            // 1. Get the cookies from the page (session persistence)
+            const cookies = await page.cookies();
+            const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+            // 2. Extract the hidden ASP.NET form fields (ViewState, etc.)
+            const formData = await page.evaluate(() => {
+                const getInput = (id: string) => (document.getElementById(id) as HTMLInputElement)?.value || '';
+                return {
+                    '__VIEWSTATE': getInput('__VIEWSTATE'),
+                    '__VIEWSTATEGENERATOR': getInput('__VIEWSTATEGENERATOR'),
+                    '__EVENTVALIDATION': getInput('__EVENTVALIDATION'),
+                    // Add other potential hidden fields if needed
+                };
+            });
+
+            console.log('Extracted ASP.NET tokens.');
+
+            // 3. Extract the __doPostBack arguments from the link
+            // Link: javascript:__doPostBack('ctl00$ContentPlaceHolder1$lnkDownload','')
+            let target = '';
+            let argument = '';
+            if (pdfLink.includes('javascript:')) {
+                const match = /__doPostBack\('([^']*)','([^']*)'\)/.exec(pdfLink);
+                if (match) {
+                    target = match[1];
+                    argument = match[2];
+                }
+            } else {
+                // If it's a direct link, just download it directly (rare)
+                console.log('Direct link found, downloading without POST...');
+                // ... direct download logic if needed, but assuming PostBack for now
+            }
+
+            console.log(`Preparing Axios POST: Target=${target}`);
+
+            // 4. Construct the full payload
+            const payload = {
+                ...formData,
+                '__EVENTTARGET': target,
+                '__EVENTARGUMENT': argument,
+                // Add any other inputs that might be on the form? Usually just these are enough.
+            };
+
+            // 5. Send POST request directly
+            // Use /tmp for Render compatibility
             const downloadDir = path.join('/tmp', 'downloads');
             if (!fs.existsSync(downloadDir)) {
                 fs.mkdirSync(downloadDir, { recursive: true });
             }
-
-            // Setup CDP immediately for reliability
-            try {
-                const client = await page.createCDPSession();
-                await client.send('Page.setDownloadBehavior', {
-                    behavior: 'allow',
-                    downloadPath: downloadDir,
-                });
-                console.log('CDP Download Behavior set to:', downloadDir);
-            } catch (cdpError) {
-                console.error('Failed to set CDP download behavior:', cdpError);
-            }
-
-            // Also try to set it on the browser context level if possible (extra safety)
-            try {
-                // @ts-ignore
-                if (browser.defaultBrowserContext().overridePermissions) {
-                    // @ts-ignore
-                    await browser.defaultBrowserContext().overridePermissions(this.BSE_URL, ['read-clipboard', 'clipboard-read', 'clipboard-write']);
-                }
-            } catch (e) { }
-
-            // Monitor new targets (popups)
-            browser.on('targetcreated', async (target) => {
-                console.log('New browser target created:', target.type(), target.url());
-            });
-
             const fileName = `${scripCode}_${Date.now()}.pdf`;
             const filePath = path.join(downloadDir, fileName);
 
-            // Use our utility to download
-            // Note: BSE links are often 'javascript:__doPostBack', which is tricky. 
-            // If the link is a direct http link (common in 'AttachLive' pattern), this works.
-            // If it's a postback, we'd need to intercept the response, which is more advanced.
-            // For this implementation, we assume it extracts the 'AttachLive' pattern or we click it.
+            console.log('Sending direct HTTP POST request...');
+            const response = await axios({
+                method: 'post',
+                url: page.url(), // Use current page URL (results.aspx?...)
+                data: qs.stringify(payload),
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Cookie': cookieString,
+                    'User-Agent': await page.browser().userAgent(),
+                    'Referer': page.url()
+                },
+                responseType: 'stream'
+            });
 
-            // If it's a javascript: link, we need to click it and intercept the download event
-            if (pdfLink.includes('javascript:')) {
-                console.log('Detected PostBack link, initiating click download...');
+            // 6. Pipe to file
+            const writer = fs.createWriteStream(filePath);
+            response.data.pipe(writer);
 
-                // Re-enforce download behavior (just in case)
-                const client = await page.createCDPSession();
-                await client.send('Page.setDownloadBehavior', {
-                    behavior: 'allow',
-                    downloadPath: downloadDir,
-                });
+            await new Promise((resolve, reject) => {
+                writer.on('finish', resolve);
+                writer.on('error', reject);
+            });
 
-                // 2. Click the link? NO. The click is failing in Docker (JSHandle@error).
-                // We will manually construct the POST request that the button WOULD have sent.
-                // Extract arguments from: javascript:__doPostBack('ctl00$ContentPlaceHolder1$lnkDownload','')
-                console.log('Attempting Manual POST bypass...');
-
-                await page.evaluate((linkHref) => {
-                    // 1. Parse the arguments
-                    const match = /__doPostBack\('([^']*)','([^']*)'\)/.exec(linkHref);
-                    if (!match) {
-                        throw new Error('Could not parse __doPostBack arguments from link: ' + linkHref);
-                    }
-                    const target = match[1];
-                    const argument = match[2];
-
-                    console.log(`Manual POST: Target=${target}, Arg=${argument}`);
-
-                    // 2. Find the form (ASP.NET usually has one main form)
-                    const form = document.querySelector('form') as HTMLFormElement;
-                    if (!form) throw new Error('No form found on page');
-
-                    // 3. Set hidden fields
-                    // __EVENTTARGET
-                    let targetField = document.getElementById('__EVENTTARGET') as HTMLInputElement;
-                    if (!targetField) {
-                        targetField = document.createElement('input');
-                        targetField.type = 'hidden';
-                        targetField.id = '__EVENTTARGET';
-                        targetField.name = '__EVENTTARGET';
-                        form.appendChild(targetField);
-                    }
-                    targetField.value = target;
-
-                    // __EVENTARGUMENT
-                    let argField = document.getElementById('__EVENTARGUMENT') as HTMLInputElement;
-                    if (!argField) {
-                        argField = document.createElement('input');
-                        argField.type = 'hidden';
-                        argField.id = '__EVENTARGUMENT';
-                        argField.name = '__EVENTARGUMENT';
-                        form.appendChild(argField);
-                    }
-                    argField.value = argument;
-
-                    // 4. SUBMIT!
-                    form.submit();
-                    console.log('Form submitted manually.');
-                }, pdfLink);
-
-                // 3. Wait for file to appear
-                // We poll the directory for a new .pdf file
-                console.log('Waiting for file to appear in:', downloadDir);
-
-                let downloadedFile: string | null = null;
-                const maxRetries = 300; // 300 seconds (5 minutes) - Increased for slow Render Node env
-
-                for (let i = 0; i < maxRetries; i++) {
-                    await new Promise(r => setTimeout(r, 1000)); // Wait 1s
-
-                    const files = fs.readdirSync(downloadDir);
-                    console.log(`[${i}/${maxRetries}] Files in ${downloadDir}:`, files);
-                    // Find the most recently created PDF file that isn't a partial download (.crdownload)
-                    const pdfFiles = files.filter(f => f.endsWith('.pdf'));
-
-                    if (pdfFiles.length > 0) {
-                        // Get the latest one
-                        const latestFile = pdfFiles.map(f => ({
-                            name: f,
-                            time: fs.statSync(path.join(downloadDir, f)).mtime.getTime()
-                        })).sort((a, b) => b.time - a.time)[0];
-
-                        // Ensure it's new (created in the last minute)
-                        if (Date.now() - latestFile.time < 60000) {
-                            downloadedFile = path.join(downloadDir, latestFile.name);
-                            break;
-                        }
-                    }
-                }
-
-                if (!downloadedFile) {
-                    const files = fs.readdirSync(downloadDir);
-                    throw new Error(`Download timeout: File did not appear in directory within ${maxRetries}s. Files present: ${JSON.stringify(files)}`);
-                }
-
-                // 4. Rename to our meaningful filename
-                const finalPath = path.join(downloadDir, `${scripCode}_${Date.now()}.pdf`);
-                fs.renameSync(downloadedFile, finalPath);
-
-                console.log(`Downloaded (via Click) to: ${finalPath}`);
-                return finalPath;
-            }
-
-            await FileDownloader.downloadFile(pdfLink, filePath);
-            console.log(`Downloaded to: ${filePath}`);
+            console.log(`Direct Download Successful: ${filePath}`);
             return filePath;
 
         } catch (error) {
