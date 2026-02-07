@@ -106,9 +106,48 @@ model Stock {
   watchedBy   Watchlist[]
   stockOfTheWeeks StockOfTheWeek[]
   verdicts    StockVerdict[]
-
+  financials  FinancialResult[]
 
   @@map("stocks")
+}
+
+model FinancialResult {
+  id          String   @id @default(uuid())
+  stockSymbol String   @map("stock_symbol")
+  
+  resultType  String   @map("result_type") // QUARTERLY | ANNUAL | BALANCE_SHEET
+  period      String   @map("period")      // "Jun 2025", "Mar 2025", "FY 2025"
+  date        DateTime @map("date")        // Parsed date for sorting
+  
+  // Income Statement
+  revenue     Float?   @map("revenue")
+  expenses    Float?   @map("expenses")
+  operatingProfit Float? @map("operating_profit")
+  netProfit   Float?   @map("net_profit")
+  eps         Float?   @map("eps")
+  
+  // Balance Sheet
+  equityCapital Float? @map("equity_capital")
+  reserves      Float? @map("reserves")
+  borrowings    Float? @map("borrowings")
+  otherLiabilities Float? @map("other_liabilities")
+  totalLiabilities Float? @map("total_liabilities")
+  fixedAssets   Float? @map("fixed_assets")
+  cwip          Float? @map("cwip")
+  investments   Float? @map("investments")
+  otherAssets   Float? @map("other_assets")
+  totalAssets   Float? @map("total_assets")
+
+  pdfUrl      String?  @map("pdf_url")     // Link to source PDF
+  rawData     Json?    @map("raw_data")    // Full scraped JSON dump
+
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  stock       Stock    @relation(fields: [stockSymbol], references: [symbol])
+
+  @@unique([stockSymbol, period, resultType]) // Prevent duplicates
+  @@index([stockSymbol, date])
+  @@map("financial_results")
 }
 
 model StockVerdict {
