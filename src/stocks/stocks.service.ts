@@ -64,14 +64,14 @@ export class StocksService {
 
     let stock = await this.prisma.stock.findUnique({
       where: { symbol },
-      include: { investorStocks: { include: { investor: true } } },
+      include: { investorStocks: { include: { investor: true } }, financials: true },
     });
 
     // If not found and no suffix, try appending .NS (common for Indian stocks)
     if (!stock && !symbol.includes('.') && !symbol.startsWith('^')) {
       const stockNS = await this.prisma.stock.findUnique({
         where: { symbol: `${symbol}.NS` },
-        include: { investorStocks: { include: { investor: true } } },
+        include: { investorStocks: { include: { investor: true } }, financials: true },
       });
       if (stockNS) {
         stock = stockNS;
@@ -270,7 +270,7 @@ export class StocksService {
               (symbol.includes('.BO') ? 'BSE' : 'NSE'),
             ...dataToUpdate,
           },
-          include: { investorStocks: { include: { investor: true } } },
+          include: { investorStocks: { include: { investor: true } }, financials: true },
         });
         return updatedStock;
       } catch (error) {
