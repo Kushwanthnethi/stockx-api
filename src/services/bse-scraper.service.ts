@@ -96,23 +96,75 @@ export class BseScraperService {
             console.log(`Found PDF Link: ${pdfLink}`);
 
             // ---------------------------------------------------------
-            // THE AXIOS BYPASS: Stop using Browser Download Manager
+            // THE LINK HUNTER: Find the direct PDF link
             // ---------------------------------------------------------
+            console.log('Hunting for direct PDF links...');
 
-            // 1. Get the cookies from the page (session persistence)
-            const cookies = await page.cookies();
-            const cookieString = cookies.map((c: any) => `${c.name}=${c.value}`).join('; ');
-
-            // 2. Extract the hidden ASP.NET form fields (ViewState, etc.)
-            const formData = await page.evaluate(() => {
-                const getInput = (id: string) => (document.getElementById(id) as HTMLInputElement)?.value || '';
-                return {
-                    '__VIEWSTATE': getInput('__VIEWSTATE'),
-                    '__VIEWSTATEGENERATOR': getInput('__VIEWSTATEGENERATOR'),
-                    '__EVENTVALIDATION': getInput('__EVENTVALIDATION'),
-                    // Add other potential hidden fields if needed
-                };
+            // 1. Dump ALL links to logs for debugging
+            const allLinks = await page.evaluate(() => {
+                return Array.from(document.querySelectorAll('a'))
+                    .map(a => ({
+                        text: a.innerText.trim(),
+                        href: a.href
+                    }))
+                    .filter(a => a.href && a.href.length > 0);
             });
+
+            console.log('Found ' + allLinks.length + ' links on page.');
+            console.log('ALL LINKS DUMP:', JSON.stringify(allLinks, null, 2));
+
+            // 2. Check for "AttachLive" or ".pdf" which are direct links
+            const directPdfLink = allLinks.find(a =>
+                (a.href.toLowerCase().includes('attachlive') || a.href.toLowerCase().endsWith('.pdf')) &&
+                !a.href.includes('javascript:')
+            );
+
+            if (directPdfLink) {
+                console.log('🎯 DIRECT PDF LINK FOUND:', directPdfLink.href);
+                // Download directly using axios
+                const downloadDir = path.join('/tmp', 'downloads');
+                if (!fs.existsSync(downloadDir)) {
+                    fs.mkdirSync(downloadDir, { recursive: true });
+                }
+                const fileName = `${scripCode}_${Date.now()}.pdf`;
+                const filePath = path.join(downloadDir, fileName);
+
+                await FileDownloader.downloadFile(directPdfLink.href, filePath);
+                console.log(`Downloaded Direct Link to: ${filePath}`);
+                return filePath;
+            }
+
+            console.log('No direct PDF link found. Falling back to PostBack...');
+
+            /*
+            // ---------------------------------------------------------
+            // THE AXIOS BYPASS (DISABLED FOR NOW to debug links)
+            // ---------------------------------------------------------
+            */
+
+            // If we reach here, we didn't find a direct link.
+            // Let's just return null for now so we can see the logs without crashing on the POST 404.
+            // If the logs show a hidden link we missed, we update the logic.
+            return null;
+
+            /*
+           // 1. Get the cookies from the page (session persistence)
+           const cookies = await page.cookies();
+           const cookieString = cookies.map((c: any) => `${c.name}=${c.value}`).join('; ');
+
+           // 2. Extract the hidden ASP.NET form fields (ViewState, etc.)
+           const formData = await page.evaluate(() => {
+               const getInput = (id: string) => (document.getElementById(id) as HTMLInputElement)?.value || '';
+               return {
+                   '__VIEWSTATE': getInput('__VIEWSTATE'),
+                   '__VIEWSTATEGENERATOR': getInput('__VIEWSTATEGENERATOR'),
+                   '__EVENTVALIDATION': getInput('__EVENTVALIDATION'),
+                   // Add other potential hidden fields if needed
+               };
+           });
+           
+           // ... (Rest of Axios logic commented out for this test)
+           */
 
             console.log('Extracted ASP.NET tokens.');
 
@@ -151,6 +203,7 @@ export class BseScraperService {
             const fileName = `${scripCode}_${Date.now()}.pdf`;
             const filePath = path.join(downloadDir, fileName);
 
+            /*
             console.log('Sending direct HTTP POST request...');
             const response = await axios({
                 method: 'post',
@@ -176,6 +229,7 @@ export class BseScraperService {
 
             console.log(`Direct Download Successful: ${filePath}`);
             return filePath;
+            */
 
         } catch (error) {
             console.error('Scraping failed:', error);
