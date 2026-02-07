@@ -4,6 +4,7 @@ import * as qs from 'qs';
 import * as fs from 'fs';
 import * as path from 'path';
 import puppeteer, { ConsoleMessage, Protocol } from 'puppeteer';
+import { FileDownloader } from '../utils/file-downloader';
 
 export class BseScraperService {
     private static readonly BSE_URL = 'https://www.bseindia.com/corporates/results.aspx';
@@ -136,40 +137,28 @@ export class BseScraperService {
 
             console.log('No direct PDF link found. Falling back to PostBack...');
 
-            /*
             // ---------------------------------------------------------
             // THE AXIOS BYPASS (DISABLED FOR NOW to debug links)
             // ---------------------------------------------------------
-            */
+            if (!pdfLink) return null;
 
-            // If we reach here, we didn't find a direct link.
-            // Let's just return null for now so we can see the logs without crashing on the POST 404.
-            // If the logs show a hidden link we missed, we update the logic.
-            return null;
+            // 1. Get the cookies from the page (session persistence)
+            const cookies = await page.cookies();
+            const cookieString = cookies.map((c: any) => `${c.name}=${c.value}`).join('; ');
 
-            /*
-           // 1. Get the cookies from the page (session persistence)
-           const cookies = await page.cookies();
-           const cookieString = cookies.map((c: any) => `${c.name}=${c.value}`).join('; ');
-
-           // 2. Extract the hidden ASP.NET form fields (ViewState, etc.)
-           const formData = await page.evaluate(() => {
-               const getInput = (id: string) => (document.getElementById(id) as HTMLInputElement)?.value || '';
-               return {
-                   '__VIEWSTATE': getInput('__VIEWSTATE'),
-                   '__VIEWSTATEGENERATOR': getInput('__VIEWSTATEGENERATOR'),
-                   '__EVENTVALIDATION': getInput('__EVENTVALIDATION'),
-                   // Add other potential hidden fields if needed
-               };
-           });
-           
-           // ... (Rest of Axios logic commented out for this test)
-           */
+            // 2. Extract the hidden ASP.NET form fields (ViewState, etc.)
+            const formData = await page.evaluate(() => {
+                const getInput = (id: string) => (document.getElementById(id) as HTMLInputElement)?.value || '';
+                return {
+                    '__VIEWSTATE': getInput('__VIEWSTATE'),
+                    '__VIEWSTATEGENERATOR': getInput('__VIEWSTATEGENERATOR'),
+                    '__EVENTVALIDATION': getInput('__EVENTVALIDATION'),
+                };
+            });
 
             console.log('Extracted ASP.NET tokens.');
 
             // 3. Extract the __doPostBack arguments from the link
-            // Link: javascript:__doPostBack('ctl00$ContentPlaceHolder1$lnkDownload','')
             let target = '';
             let argument = '';
             if (pdfLink.includes('javascript:')) {
@@ -178,10 +167,6 @@ export class BseScraperService {
                     target = match[1];
                     argument = match[2];
                 }
-            } else {
-                // If it's a direct link, just download it directly (rare)
-                console.log('Direct link found, downloading without POST...');
-                // ... direct download logic if needed, but assuming PostBack for now
             }
 
             console.log(`Preparing Axios POST: Target=${target}`);
@@ -191,7 +176,6 @@ export class BseScraperService {
                 ...formData,
                 '__EVENTTARGET': target,
                 '__EVENTARGUMENT': argument,
-                // Add any other inputs that might be on the form? Usually just these are enough.
             };
 
             // 5. Send POST request directly
