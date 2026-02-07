@@ -217,9 +217,20 @@ export class BseScraperService {
 
         } catch (error) {
             console.error('Scraping failed:', error);
-            throw error;
+            try {
+                // If it was a browser error, we can try to close it
+                // but pages are closed in finally block.
+                // Log page content for debugging if available
+                // @ts-ignore
+                // if (page) console.log('Page Content on Error:', await page.content());
+            } catch (e) { }
+            return null;
         } finally {
-            await browser.close();
+            try {
+                if (browser) await browser.close();
+            } catch (e) {
+                console.error('Error closing browser:', e);
+            }
         }
     }
 }
