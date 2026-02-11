@@ -25,7 +25,7 @@ export class StocksService {
           validation: { logErrors: false },
           suppressNotices: ['yahooSurvey'],
         };
-        this.yahooFinance = new YahooFinanceClass(config);
+        this.yahooFinance = new YahooFinanceClass(config as any);
       } else {
         this.yahooFinance = YahooFinanceClass;
       }
