@@ -56,9 +56,9 @@ export class StocksService {
       if (Array.isArray(res)) {
         data = res;
       } else if (res && typeof res === 'object') {
-        // If it's a wrapped object (sometimes happens with validate: false)
-        data = (res as any).result || (res as any).timeseries || [];
-        if (!Array.isArray(data)) data = [];
+        // Handle nested results like { timeseries: { result: [...] } }
+        const wrapped = (res as any).timeseries?.result || (res as any).result;
+        data = Array.isArray(wrapped) ? wrapped : [];
       }
 
       if (data.length === 0) {
