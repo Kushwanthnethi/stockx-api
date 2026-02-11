@@ -44,6 +44,7 @@ export class StocksService {
       querySymbol = `${symbol}.NS`;
     }
 
+    let data: any[] = [];
     try {
       const res = await yf.fundamentalsTimeSeries(querySymbol, {
         period1: '2023-01-01',
@@ -52,7 +53,6 @@ export class StocksService {
       }, { validate: false });
 
       // Robust check for response format
-      let data: any[] = [];
       if (Array.isArray(res)) {
         data = res;
       } else if (res && typeof res === 'object') {
@@ -60,10 +60,15 @@ export class StocksService {
         const wrapped = (res as any).timeseries?.result || (res as any).result;
         data = Array.isArray(wrapped) ? wrapped : [];
       }
+    } catch (e) {
+      console.warn(`Primary fundamentals fetch failed for ${symbol}, proceeding to fallbacks. Error: ${e.message}`);
+    }
 
-      if (data.length === 0) {
-        console.warn(`No time-series data for ${symbol}, trying quoteSummary fallbacks...`);
+    // Fallback Logic (Executes if data is empty OR if primary fetch failed)
+    if (data.length === 0) {
+      console.warn(`No time-series data for ${symbol}, trying quoteSummary fallbacks...`);
 
+      try {
         // Fallback 1: incomeStatementHistoryQuarterly
         const summary = await yf.quoteSummary(querySymbol, {
           modules: ['incomeStatementHistoryQuarterly', 'earnings', 'price']
@@ -123,69 +128,43 @@ export class StocksService {
             });
           }
         }
-        return [];
-      }
-
-      return data.map((q: any) => {
-        const sales = q.totalRevenue || 0;
-        const interest = q.interestExpense || 0;
-        const pbt = q.pretaxIncome || 0;
-        const tax = q.taxProvision || 0;
-        const netProfit = q.netIncome || 0;
-        const eps = q.basicEPS || 0;
-        const depreciation = q.depreciationAmortizationDepletionIncomeStatement || 0;
-
-        // Derived fields
-        const operatingProfit = q.operatingIncome || (pbt + interest + depreciation);
-        const expenses = Math.max(0, sales - operatingProfit);
-        const opmPercent = sales > 0 ? (operatingProfit / sales) * 100 : 0;
-        const taxPercent = pbt > 0 ? (tax / pbt) * 100 : 0;
-
-        return {
-          date: q.date,
-          formattedDate: new Date(q.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
-          sales,
-          expenses,
-          operatingProfit,
-          opmPercent,
-          otherIncome: (pbt - operatingProfit + interest + depreciation),
-          interest,
-          depreciation,
-          pbt,
-          taxPercent,
-          netProfit,
-          eps
-        };
-      });
-    } catch (e) {
-      console.error(`Failed to fetch quarterly details for ${symbol}:`, e);
-      // Try Fallback 2 directly if the main block fails (e.g. for Reliance validation error)
-      try {
-        const yf = await this.getYahooClient();
-        const summary = await yf.quoteSummary(querySymbol, { modules: ['earnings'] }, { validate: false });
-        const earningsHistory = summary.earnings?.financialsChart?.quarterly || [];
-        if (earningsHistory.length > 0) {
-          return earningsHistory.map((q: any) => ({
-            date: q.date,
-            formattedDate: q.date,
-            sales: q.revenue || 0,
-            expenses: Math.max(0, (q.revenue || 0) - (q.earnings || 0)),
-            operatingProfit: q.earnings || 0,
-            opmPercent: q.revenue > 0 ? (q.earnings / q.revenue) * 100 : 0,
-            otherIncome: 0,
-            interest: 0,
-            depreciation: 0,
-            pbt: q.earnings || 0,
-            taxPercent: 0,
-            netProfit: q.earnings || 0,
-            eps: 0
-          }));
-        }
-      } catch (innerError) {
-        console.error('Final fallback also failed', innerError);
+      } catch (fbError) {
+        console.error(`Fallback attempts also failed for ${symbol}`, fbError);
       }
       return [];
     }
+
+    return data.map((q: any) => {
+      const sales = q.totalRevenue || 0;
+      const interest = q.interestExpense || 0;
+      const pbt = q.pretaxIncome || 0;
+      const tax = q.taxProvision || 0;
+      const netProfit = q.netIncome || 0;
+      const eps = q.basicEPS || 0;
+      const depreciation = q.depreciationAmortizationDepletionIncomeStatement || 0;
+
+      // Derived fields
+      const operatingProfit = q.operatingIncome || (pbt + interest + depreciation);
+      const expenses = Math.max(0, sales - operatingProfit);
+      const opmPercent = sales > 0 ? (operatingProfit / sales) * 100 : 0;
+      const taxPercent = pbt > 0 ? (tax / pbt) * 100 : 0;
+
+      return {
+        date: q.date,
+        formattedDate: new Date(q.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+        sales,
+        expenses,
+        operatingProfit,
+        opmPercent,
+        otherIncome: (pbt - operatingProfit + interest + depreciation),
+        interest,
+        depreciation,
+        pbt,
+        taxPercent,
+        netProfit,
+        eps
+      };
+    });
   }
 
   async getQuote(symbol: string) {
