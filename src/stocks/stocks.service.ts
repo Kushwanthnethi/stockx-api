@@ -18,19 +18,17 @@ export class StocksService {
     try {
       // Dynamic import to handle ESM/CommonJS quirks of this library
       const pkg = await import('yahoo-finance2');
-      // Check different import possibilities
       const YahooFinanceClass = pkg.default || pkg;
 
       if (typeof YahooFinanceClass === 'function') {
-        this.yahooFinance = new YahooFinanceClass({
+        const config = {
           validation: { logErrors: false },
           suppressNotices: ['yahooSurvey'],
-        });
+        };
+        this.yahooFinance = new YahooFinanceClass(config);
       } else {
-        // Fallback if it's already an instance or different shape
         this.yahooFinance = YahooFinanceClass;
       }
-
       console.log('Yahoo Finance client initialized');
     } catch (e) {
       console.error('Failed to initialize YahooFinance client', e);
@@ -47,18 +45,25 @@ export class StocksService {
     }
 
     try {
-      // Use fundamentalsTimeSeries to get detailed quarterly data
-      // We look back to 2023 to get enough data for a comparison table
       const res = await yf.fundamentalsTimeSeries(querySymbol, {
         period1: '2023-01-01',
         module: 'financials',
         type: 'quarterly'
       }, { validate: false });
 
-      if (!res || res.length === 0) return [];
+      // Robust check for response format
+      let data: any[] = [];
+      if (Array.isArray(res)) {
+        data = res;
+      } else if (res && typeof res === 'object') {
+        // If it's a wrapped object (sometimes happens with validate: false)
+        data = (res as any).result || (res as any).timeseries || [];
+        if (!Array.isArray(data)) data = [];
+      }
 
-      // Map to Screener format
-      return res.map((q: any) => {
+      if (data.length === 0) return [];
+
+      return data.map((q: any) => {
         const sales = q.totalRevenue || 0;
         const interest = q.interestExpense || 0;
         const pbt = q.pretaxIncome || 0;
