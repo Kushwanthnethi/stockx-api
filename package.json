@@ -23,7 +23,6 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "@napi-rs/canvas": "^0.1.90",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
@@ -36,15 +35,10 @@
     "@prisma/client": "^5.10.0",
     "axios": "^1.13.4",
     "bcrypt": "^6.0.0",
-    "cheerio": "^1.2.0",
     "firebase-admin": "^13.6.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
-    "pdf-lib": "^1.17.1",
-    "pdf-parse": "^2.4.5",
-    "proxy-agent": "^6.5.0",
-    "puppeteer": "^24.37.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "yahoo-finance2": "^3.13.0"

@@ -18,7 +18,6 @@ import { CronModule } from './cron/cron.module';
 @Module({
   imports: [
     ConfigModule.forRoot(),
-    ConfigModule.forRoot(),
     ScheduleModule.forRoot(),
     AuthModule,
     UsersModule,
@@ -26,8 +25,6 @@ import { CronModule } from './cron/cron.module';
     StocksModule,
     PostsModule,
     NotificationsModule,
-    InvestorsModule,
-    InvestorsModule,
     InvestorsModule,
     AdminModule,
     CronModule,

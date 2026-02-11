@@ -869,7 +869,48 @@ export class StocksService {
         recommendationMean: res.financialData?.recommendationMean || null,
 
         // MERGED: Quarterly Analysis (QoQ, YoY)
-        quarterly: await this.getQuarterlyResults(symbol).catch((e) => null),
+        // MERGED: Quarterly Analysis (QoQ, YoY)
+        quarterly: await (async () => {
+          try {
+            const qData = await this.getQuarterlyDetails(symbol);
+            if (!qData || qData.length === 0) return null;
+
+            // Sort Newest First
+            const sorted = [...qData].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+            const current = sorted[0];
+            const prev = sorted[1];
+            const yearAgo = sorted[4];
+
+            const growth = (curr: number, base: number) => {
+              if (curr === undefined || base === undefined || base === 0) return null;
+              return (curr - base) / Math.abs(base);
+            };
+
+            return {
+              quarters: sorted,
+              comparisons: {
+                current,
+                prev,
+                yearAgo,
+                growth: {
+                  qoq: {
+                    revenue: growth(current?.sales, prev?.sales),
+                    netIncome: growth(current?.netProfit, prev?.netProfit),
+                    operatingIncome: growth(current?.operatingProfit, prev?.operatingProfit),
+                    eps: growth(current?.eps, prev?.eps),
+                  },
+                  yoy: {
+                    revenue: growth(current?.sales, yearAgo?.sales),
+                    netIncome: growth(current?.netProfit, yearAgo?.netProfit),
+                    operatingIncome: growth(current?.operatingProfit, yearAgo?.operatingProfit),
+                    eps: growth(current?.eps, yearAgo?.eps),
+                  }
+                }
+              }
+            };
+          } catch (e) { return null; }
+        })(),
       };
     } catch (e) {
       console.error(`Failed to fetch earnings details for ${symbol}`, e);
@@ -877,138 +918,7 @@ export class StocksService {
     }
   }
 
-  async getQuarterlyResults(symbol: string) {
-    try {
-      const yahooFinance = await this.getYahooClient();
 
-      // Fix: If symbol has no suffix (e.g. "DRREDDY"), assume NSE (.NS)
-      let querySymbol = symbol;
-      if (!symbol.includes('.') && !symbol.startsWith('^')) {
-        querySymbol = `${symbol}.NS`;
-      }
-
-      const res = await yahooFinance.quoteSummary(querySymbol, {
-        modules: ['earnings', 'financialData', 'price'],
-      });
-
-      const earningsFn = res.earnings?.financialsChart?.quarterly || [];
-      const earningsEps = res.earnings?.earningsChart?.quarterly || [];
-      const incomeStatement: any[] = []; // Submodule deprecated by Yahoo, using financialsChart instead
-
-      // Sort Earnings Oldest to Newest (standard), verify and reverse for processing
-      const sortedEarningsFn = [...earningsFn];
-
-      const normalizedQuarterly = [];
-      const count = sortedEarningsFn.length;
-      if (count === 0) return { quarterly: [], comparisons: null };
-
-      // Iterate backwards (Newest first)
-      for (let i = count - 1; i >= 0; i--) {
-        const qFn = sortedEarningsFn[i];
-        const qEps = earningsEps.find((e: any) => e.date === qFn.date);
-
-        let revenue = qFn.revenue;
-        let netIncome = qFn.earnings;
-        let ebitda = null;
-        let operatingIncome = null;
-        const eps = qEps?.actual;
-
-        // Try to match with IncomeStatement (Newest First)
-        // earningsFn[count-1] (Latest) -> incomeStatement[0]
-        const incomeIdx = count - 1 - i;
-        if (incomeStatement[incomeIdx]) {
-          const inc = incomeStatement[incomeIdx];
-          if (inc.totalRevenue) revenue = inc.totalRevenue;
-          if (inc.netIncome) netIncome = inc.netIncome;
-          if (inc.ebitda) ebitda = inc.ebitda;
-          if (inc.operatingIncome) operatingIncome = inc.operatingIncome;
-        }
-
-        normalizedQuarterly.push({
-          period: qFn.date,
-          revenue,
-          netIncome,
-          ebitda,
-          operatingIncome,
-          eps,
-        });
-      }
-
-      const current = normalizedQuarterly[0];
-      const prev = normalizedQuarterly[1];
-      // Yahoo usually gives only 4 quarters. So result is usually [Q4, Q3, Q2, Q1].
-      // Q1 year ago is missing (would be index 4).
-      // So comparisons.yearAgo often will be null.
-      const yearAgoQtr =
-        normalizedQuarterly.length >= 5 ? normalizedQuarterly[4] : null;
-
-      const calculateMargins = (q: any) => {
-        if (!q) return null;
-        return {
-          ...q,
-          ebitdaMargin: q.ebitda && q.revenue ? q.ebitda / q.revenue : null,
-          netProfitMargin:
-            q.netIncome && q.revenue ? q.netIncome / q.revenue : null,
-          operatingMargin:
-            q.operatingIncome && q.revenue
-              ? q.operatingIncome / q.revenue
-              : null,
-        };
-      };
-
-      const growth = (curr: number, base: number) => {
-        if (
-          curr === undefined ||
-          base === undefined ||
-          base === 0 ||
-          curr === null ||
-          base === null
-        )
-          return null;
-        return (curr - base) / Math.abs(base);
-      };
-
-      const finalCurrent = calculateMargins(current);
-      const finalPrev = calculateMargins(prev);
-      const finalYearAgo = calculateMargins(yearAgoQtr);
-
-      return {
-        symbol: symbol.toUpperCase(),
-        currency: res.price?.currency,
-        quarters: normalizedQuarterly.map(calculateMargins),
-        comparisons: {
-          current: finalCurrent,
-          prev: finalPrev,
-          yearAgo: finalYearAgo,
-          growth: {
-            qoq: {
-              revenue: growth(current?.revenue, prev?.revenue),
-              netIncome: growth(current?.netIncome, prev?.netIncome),
-              ebitda: growth(current?.ebitda, prev?.ebitda),
-              operatingIncome: growth(
-                current?.operatingIncome,
-                prev?.operatingIncome,
-              ),
-              eps: growth(current?.eps, prev?.eps),
-            },
-            yoy: {
-              revenue: growth(current?.revenue, yearAgoQtr?.revenue),
-              netIncome: growth(current?.netIncome, yearAgoQtr?.netIncome),
-              ebitda: growth(current?.ebitda, yearAgoQtr?.ebitda),
-              operatingIncome: growth(
-                current?.operatingIncome,
-                yearAgoQtr?.operatingIncome,
-              ),
-              eps: growth(current?.eps, yearAgoQtr?.eps),
-            },
-          },
-        },
-      };
-    } catch (e) {
-      console.error(`Failed to fetch quarterly results for ${symbol}`, e);
-      throw new NotFoundException(`Quarterly results for ${symbol} not found`);
-    }
-  }
 
   async findAll() {
     // Return all stocks in DB
