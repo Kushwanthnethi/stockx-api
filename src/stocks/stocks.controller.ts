@@ -3,7 +3,7 @@ import { StocksService } from './stocks.service';
 
 @Controller('stocks')
 export class StocksController {
-  constructor(private readonly stocksService: StocksService) {}
+  constructor(private readonly stocksService: StocksService) { }
 
   @Get()
   findAll() {
@@ -47,7 +47,7 @@ export class StocksController {
 
   @Get(':symbol/quarterly')
   getQuarterlyResults(@Param('symbol') symbol: string) {
-    return this.stocksService.getQuarterlyResults(symbol);
+    return this.stocksService.getQuarterlyDetails(symbol);
   }
 
   @Get(':symbol/news')

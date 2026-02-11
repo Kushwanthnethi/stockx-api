@@ -39,7 +39,7 @@ export class StocksService {
     return this.yahooFinance;
   }
 
-  async getQuarterlyResults(symbol: string) {
+  async getQuarterlyDetails(symbol: string) {
     const yf = await this.getYahooClient();
     let querySymbol = symbol;
     if (!symbol.includes('.') && !symbol.startsWith('^')) {
