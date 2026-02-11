@@ -62,37 +62,68 @@ export class StocksService {
       }
 
       if (data.length === 0) {
-        console.warn(`No time-series data for ${symbol}, trying quoteSummary fallback...`);
+        console.warn(`No time-series data for ${symbol}, trying quoteSummary fallbacks...`);
+
+        // Fallback 1: incomeStatementHistoryQuarterly
         const summary = await yf.quoteSummary(querySymbol, {
-          modules: ['incomeStatementHistoryQuarterly', 'price']
-        }, { validate: false });
+          modules: ['incomeStatementHistoryQuarterly', 'earnings', 'price']
+        }, { validate: false }).catch(() => null);
 
-        const history = summary.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
-        if (history.length === 0) return [];
+        if (summary) {
+          const history = summary.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+          if (history.length > 0) {
+            return history.map((q: any) => {
+              const sales = q.totalRevenue?.raw || 0;
+              const netProfit = q.netIncome?.raw || 0;
+              const pbt = q.incomeBeforeTax?.raw || 0;
+              const tax = q.incomeTaxExpense?.raw || 0;
+              const operatingProfit = q.operatingIncome?.raw || (pbt + (q.interestExpense?.raw || 0));
 
-        return history.map((q: any) => {
-          const sales = q.totalRevenue?.raw || 0;
-          const netProfit = q.netIncome?.raw || 0;
-          const pbt = q.incomeBeforeTax?.raw || 0;
-          const tax = q.incomeTaxExpense?.raw || 0;
-          const operatingProfit = q.operatingIncome?.raw || (pbt + (q.interestExpense?.raw || 0));
+              return {
+                date: q.endDate?.raw * 1000,
+                formattedDate: new Date(q.endDate?.raw * 1000).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+                sales,
+                expenses: Math.max(0, sales - operatingProfit),
+                operatingProfit,
+                opmPercent: sales > 0 ? (operatingProfit / sales) * 100 : 0,
+                otherIncome: pbt - operatingProfit,
+                interest: q.interestExpense?.raw || 0,
+                depreciation: 0,
+                pbt,
+                taxPercent: pbt > 0 ? (tax / pbt) * 100 : 0,
+                netProfit,
+                eps: 0
+              };
+            }).reverse();
+          }
 
-          return {
-            date: q.endDate?.raw * 1000,
-            formattedDate: new Date(q.endDate?.raw * 1000).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
-            sales,
-            expenses: Math.max(0, sales - operatingProfit),
-            operatingProfit,
-            opmPercent: sales > 0 ? (operatingProfit / sales) * 100 : 0,
-            otherIncome: pbt - operatingProfit,
-            interest: q.interestExpense?.raw || 0,
-            depreciation: 0, // Not available in this module
-            pbt,
-            taxPercent: pbt > 0 ? (tax / pbt) * 100 : 0,
-            netProfit,
-            eps: 0 // Not accurately available here
-          };
-        }).reverse(); // QuoteSummary usually returns newest first, we want chronological
+          // Fallback 2: earnings module (very basic but reliable)
+          const earningsHistory = summary.earnings?.financialsChart?.quarterly || [];
+          if (earningsHistory.length > 0) {
+            console.log(`Found ${earningsHistory.length} quarters in earnings module for ${symbol}`);
+            return earningsHistory.map((q: any) => {
+              const sales = q.revenue || 0;
+              const netProfit = q.earnings || 0;
+
+              return {
+                date: q.date, // String like "1Q2025"
+                formattedDate: q.date,
+                sales,
+                expenses: Math.max(0, sales - netProfit),
+                operatingProfit: netProfit,
+                opmPercent: sales > 0 ? (netProfit / sales) * 100 : 0,
+                otherIncome: 0,
+                interest: 0,
+                depreciation: 0,
+                pbt: netProfit,
+                taxPercent: 0,
+                netProfit,
+                eps: 0
+              };
+            });
+          }
+        }
+        return [];
       }
 
       return data.map((q: any) => {
@@ -128,6 +159,31 @@ export class StocksService {
       });
     } catch (e) {
       console.error(`Failed to fetch quarterly details for ${symbol}:`, e);
+      // Try Fallback 2 directly if the main block fails (e.g. for Reliance validation error)
+      try {
+        const yf = await this.getYahooClient();
+        const summary = await yf.quoteSummary(querySymbol, { modules: ['earnings'] }, { validate: false });
+        const earningsHistory = summary.earnings?.financialsChart?.quarterly || [];
+        if (earningsHistory.length > 0) {
+          return earningsHistory.map((q: any) => ({
+            date: q.date,
+            formattedDate: q.date,
+            sales: q.revenue || 0,
+            expenses: Math.max(0, (q.revenue || 0) - (q.earnings || 0)),
+            operatingProfit: q.earnings || 0,
+            opmPercent: q.revenue > 0 ? (q.earnings / q.revenue) * 100 : 0,
+            otherIncome: 0,
+            interest: 0,
+            depreciation: 0,
+            pbt: q.earnings || 0,
+            taxPercent: 0,
+            netProfit: q.earnings || 0,
+            eps: 0
+          }));
+        }
+      } catch (innerError) {
+        console.error('Final fallback also failed', innerError);
+      }
       return [];
     }
   }
