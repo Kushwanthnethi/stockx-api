@@ -10,7 +10,6 @@ import { VerdictsController } from './verdicts.controller';
 import { AIConfigService } from './ai-config.service';
 import { ScrapeController } from '../controllers/scrape.controller';
 import { BseScraperService } from '../services/bse-scraper.service';
-import { PdfParserService } from '../services/pdf-parser.service';
 
 @Module({
   imports: [PrismaModule, ConfigModule],
@@ -21,7 +20,6 @@ import { PdfParserService } from '../services/pdf-parser.service';
     VerdictsService,
     AIConfigService,
     BseScraperService,
-    PdfParserService,
   ],
   exports: [StocksService, AIConfigService],
 })

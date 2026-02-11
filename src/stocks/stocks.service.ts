@@ -22,22 +22,10 @@ export class StocksService {
       const YahooFinanceClass = pkg.default || pkg;
 
       if (typeof YahooFinanceClass === 'function') {
-        const config = {
+        this.yahooFinance = new YahooFinanceClass({
           validation: { logErrors: false },
           suppressNotices: ['yahooSurvey'],
-        };
-
-        // Set on class if static method exists
-        if ((YahooFinanceClass as any).setGlobalConfig) {
-          (YahooFinanceClass as any).setGlobalConfig(config);
-        }
-
-        this.yahooFinance = new YahooFinanceClass();
-
-        // Also set on instance just in case
-        if (this.yahooFinance.setGlobalConfig) {
-          this.yahooFinance.setGlobalConfig(config);
-        }
+        });
       } else {
         // Fallback if it's already an instance or different shape
         this.yahooFinance = YahooFinanceClass;
@@ -49,6 +37,64 @@ export class StocksService {
       throw e;
     }
     return this.yahooFinance;
+  }
+
+  async getQuarterlyResults(symbol: string) {
+    const yf = await this.getYahooClient();
+    let querySymbol = symbol;
+    if (!symbol.includes('.') && !symbol.startsWith('^')) {
+      querySymbol = `${symbol}.NS`;
+    }
+
+    try {
+      // Use fundamentalsTimeSeries to get detailed quarterly data
+      // We look back to 2023 to get enough data for a comparison table
+      const res = await yf.fundamentalsTimeSeries(querySymbol, {
+        period1: '2023-01-01',
+        module: 'financials',
+        type: 'quarterly'
+      }, { validate: false });
+
+      if (!res || res.length === 0) return [];
+
+      // Map to Screener format
+      return res.map((q: any) => {
+        const sales = q.totalRevenue || 0;
+        const interest = q.interestExpense || 0;
+        const pbt = q.pretaxIncome || 0;
+        const tax = q.taxProvision || 0;
+        const netProfit = q.netIncome || 0;
+        const eps = q.basicEPS || 0;
+        const depreciation = q.depreciationAmortizationDepletionIncomeStatement || 0;
+
+        // Derived fields
+        // Operating Profit = Pretax Income + Interest + Depreciation? 
+        // Or Operating Income if available
+        const operatingProfit = q.operatingIncome || (pbt + interest + depreciation);
+        const expenses = Math.max(0, sales - operatingProfit);
+        const opmPercent = sales > 0 ? (operatingProfit / sales) * 100 : 0;
+        const taxPercent = pbt > 0 ? (tax / pbt) * 100 : 0;
+
+        return {
+          date: q.date,
+          formattedDate: new Date(q.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+          sales,
+          expenses,
+          operatingProfit,
+          opmPercent,
+          otherIncome: (pbt - operatingProfit + interest + depreciation), // Approximate other income
+          interest,
+          depreciation,
+          pbt,
+          taxPercent,
+          netProfit,
+          eps
+        };
+      });
+    } catch (e) {
+      console.error(`Failed to fetch quarterly results for ${symbol}:`, e);
+      return [];
+    }
   }
 
   async getQuote(symbol: string) {

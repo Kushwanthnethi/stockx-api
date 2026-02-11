@@ -16,7 +16,7 @@ export class ScrapeController {
         this.logger.log(`Received scrape request for ${symbol}`);
 
         try {
-            const result = await this.scraperService.scrapeAndSave(symbol);
+            const result = await this.scraperService.findOne(symbol);
 
             if (result.status === 'error') {
                 throw new HttpException(result.message || 'Unknown Error', HttpStatus.BAD_REQUEST);
