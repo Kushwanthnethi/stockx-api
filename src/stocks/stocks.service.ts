@@ -61,7 +61,39 @@ export class StocksService {
         if (!Array.isArray(data)) data = [];
       }
 
-      if (data.length === 0) return [];
+      if (data.length === 0) {
+        console.warn(`No time-series data for ${symbol}, trying quoteSummary fallback...`);
+        const summary = await yf.quoteSummary(querySymbol, {
+          modules: ['incomeStatementHistoryQuarterly', 'price']
+        }, { validate: false });
+
+        const history = summary.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+        if (history.length === 0) return [];
+
+        return history.map((q: any) => {
+          const sales = q.totalRevenue?.raw || 0;
+          const netProfit = q.netIncome?.raw || 0;
+          const pbt = q.incomeBeforeTax?.raw || 0;
+          const tax = q.incomeTaxExpense?.raw || 0;
+          const operatingProfit = q.operatingIncome?.raw || (pbt + (q.interestExpense?.raw || 0));
+
+          return {
+            date: q.endDate?.raw * 1000,
+            formattedDate: new Date(q.endDate?.raw * 1000).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+            sales,
+            expenses: Math.max(0, sales - operatingProfit),
+            operatingProfit,
+            opmPercent: sales > 0 ? (operatingProfit / sales) * 100 : 0,
+            otherIncome: pbt - operatingProfit,
+            interest: q.interestExpense?.raw || 0,
+            depreciation: 0, // Not available in this module
+            pbt,
+            taxPercent: pbt > 0 ? (tax / pbt) * 100 : 0,
+            netProfit,
+            eps: 0 // Not accurately available here
+          };
+        }).reverse(); // QuoteSummary usually returns newest first, we want chronological
+      }
 
       return data.map((q: any) => {
         const sales = q.totalRevenue || 0;
@@ -73,8 +105,6 @@ export class StocksService {
         const depreciation = q.depreciationAmortizationDepletionIncomeStatement || 0;
 
         // Derived fields
-        // Operating Profit = Pretax Income + Interest + Depreciation? 
-        // Or Operating Income if available
         const operatingProfit = q.operatingIncome || (pbt + interest + depreciation);
         const expenses = Math.max(0, sales - operatingProfit);
         const opmPercent = sales > 0 ? (operatingProfit / sales) * 100 : 0;
@@ -87,7 +117,7 @@ export class StocksService {
           expenses,
           operatingProfit,
           opmPercent,
-          otherIncome: (pbt - operatingProfit + interest + depreciation), // Approximate other income
+          otherIncome: (pbt - operatingProfit + interest + depreciation),
           interest,
           depreciation,
           pbt,
@@ -97,7 +127,7 @@ export class StocksService {
         };
       });
     } catch (e) {
-      console.error(`Failed to fetch quarterly results for ${symbol}:`, e);
+      console.error(`Failed to fetch quarterly details for ${symbol}:`, e);
       return [];
     }
   }
