@@ -90,22 +90,23 @@ export class NewsBotService {
     }
 
     private async generateAndPost(item: any, userId: string): Promise<boolean> {
-        // 5. AI Summarization - Keep it concise
+        // 5. AI Summarization - Bullet points as requested
         const prompt = `
         Act as "StocksX Bot", a smart financial news anchor. 
-        Summarize this news into 1-2 VERY short, punchy sentences. 
-        Focus on the impact on the Indian market.
+        Summarize this news into 2-3 short, distinct bullet points.
+        Focus on the implications for Indian investors.
         
         HEADLINE: ${item.title}
         CONTENT: ${item.contentSnippet || ''}
 
         Guidelines:
+        - Use "•" for bullets.
+        - Start with a strong point about the market impact.
+        - Mention stock tickers as $TICKER.
         - Use 1-2 relevant emojis.
-        - Mentions stocks as $TICKER (e.g. $RELIANCE).
-        - Add #StockMarket #India.
-        - DO NOT include the link in your response.
+        - DO NOT include the link or any intro/outro text.
         
-        Output ONLY the summary text.
+        Output ONLY the bulleted points.
         `;
 
         try {
@@ -126,9 +127,10 @@ export class NewsBotService {
                 return false;
             }
 
-            // Append the link manually to ensure it's not mangled by AI
+            // Clean up the link - Google News links are messy. 
+            // We'll present it as a clear "Source" link.
             const cleanLink = item.link.trim();
-            postContent = `${postContent}\n\nRead more: ${cleanLink}`;
+            postContent = `📢 **Quick Market Update**\n\n${postContent}\n\n🔗 **Source**: ${cleanLink}`;
 
             // 6. Post to Feed
             await this.prisma.post.create({
