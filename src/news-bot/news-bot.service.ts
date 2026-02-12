@@ -93,24 +93,26 @@ export class NewsBotService {
         // 5. AI Summarization - Bullet points as requested
         const prompt = `
         Act as "StocksX Bot", a smart financial news anchor. 
-        Summarize this news into 2-3 short, distinct bullet points.
-        Focus on the implications for Indian investors.
+        Your task is to provide a brief, professional market update.
         
         HEADLINE: ${item.title}
         CONTENT: ${item.contentSnippet || ''}
 
-        Guidelines:
-        - Use "•" for bullets.
-        - Start with a strong point about the market impact.
-        - Mention stock tickers as $TICKER.
-        - Use 1-2 relevant emojis.
-        - DO NOT include the link or any intro/outro text.
+        CONSTRAINTS:
+        - Start with the text: 🚀 **Breaking Market Update**
+        - Provide exactly 2 bullet points using the "•" character.
+        - First bullet: A summary of what happened.
+        - Second bullet: The likely impact on the Indian Stock Market or specific sectors.
+        - Use stock symbols like $RELIANCE or $NIFTY50.
+        - Use 1 relevant emoji per point.
+        - DO NOT write any introductory sentences or paragraphs.
+        - DO NOT include the source link in your summary.
         
-        Output ONLY the bulleted points.
+        Output ONLY the bulleted list.
         `;
 
         try {
-            this.logger.log('Generating AI content...');
+            this.logger.log('Generating AI content (strict point-wise)...');
             // Using a more standard model string
             const model = this.aiConfig.getModel({ model: 'models/gemini-flash-latest', isSOW: false });
             if (!model) {
@@ -120,17 +122,16 @@ export class NewsBotService {
 
             const result = await model.generateContent(prompt);
             const response = await result.response;
-            let postContent = response.text().trim();
+            let aiText = response.text().trim();
 
-            if (!postContent) {
+            if (!aiText) {
                 this.logger.warn('AI generated empty content.');
                 return false;
             }
 
-            // Clean up the link - Google News links are messy. 
-            // We'll present it as a clear "Source" link.
+            // Append the link in a very clean way
             const cleanLink = item.link.trim();
-            postContent = `📢 **Quick Market Update**\n\n${postContent}\n\n🔗 **Source**: ${cleanLink}`;
+            const postContent = `${aiText}\n\n🔗 **Further Reading**: [Click here for full report](${cleanLink})`;
 
             // 6. Post to Feed
             await this.prisma.post.create({
