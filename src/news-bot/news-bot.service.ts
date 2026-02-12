@@ -51,69 +51,73 @@ export class NewsBotService {
                 return;
             }
 
-            // 3. Process Top Items (Limit to top 5 to check freshness)
-            // Reverse to post oldest first if multiple are new? No, usually newest is best.
-            const latestItems = feed.items.slice(0, 5);
+            // 3. Collect Fresh News Items (Group up to 5 items)
+            const freshItems = [];
+            const checkLimit = 10; // Look at top 10 for duplicates
+            const latestPool = feed.items.slice(0, checkLimit);
 
-            for (const item of latestItems) {
-                try {
-                    if (!item.title || !item.link) continue;
+            for (const item of latestPool) {
+                if (!item.title || !item.link) continue;
 
-                    // Better: Check if any post by bot in last 24h contains this Title
-                    const duplicate = await this.prisma.post.findFirst({
-                        where: {
-                            userId: botUser.id,
-                            content: { contains: item.title.substring(0, 30) },
-                            createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-                        }
-                    });
-
-                    if (duplicate) {
-                        this.logger.debug(`Skipping duplicate news: ${item.title}`);
-                        continue;
+                // Check for duplicate in last 24h
+                const duplicate = await this.prisma.post.findFirst({
+                    where: {
+                        userId: botUser.id,
+                        content: { contains: item.title.substring(0, 30) },
+                        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
                     }
+                });
 
-                    this.logger.log(`Found fresh news: ${item.title}`);
-                    const success = await this.generateAndPost(item, botUser.id);
-                    if (success) {
-                        this.logger.log('✅ Post successful. Stopping loop.');
-                        break;
-                    }
-                } catch (e) {
-                    this.logger.error(`Error processing item: ${item.title}`, e);
+                if (!duplicate) {
+                    freshItems.push(item);
                 }
+
+                if (freshItems.length >= 5) break;
             }
+
+            if (freshItems.length === 0) {
+                this.logger.log('No new fresh items to post.');
+                return;
+            }
+
+            this.logger.log(`Found ${freshItems.length} fresh news items. Generating consolidated pulse post.`);
+            await this.generateAndPostConsolidated(freshItems, botUser.id);
 
         } catch (error) {
             this.logger.error('Failed to process news feed', error);
         }
     }
 
-    private async generateAndPost(item: any, userId: string): Promise<boolean> {
-        // 5. AI Summarization - Bullet points as requested
-        const prompt = `
-        Act as "StocksX Bot", a smart financial news anchor. 
-        Your task is to provide a brief, professional market update.
-        
-        HEADLINE: ${item.title}
+    private async generateAndPostConsolidated(items: any[], userId: string): Promise<boolean> {
+        // Prepare news context for AI
+        const newsContext = items.map((item, idx) => `
+        ITEM ${idx + 1}:
+        TITLE: ${item.title}
         CONTENT: ${item.contentSnippet || ''}
+        LINK: ${item.link}
+        `).join('\n------------------\n');
+
+        const prompt = `
+        Act as "StocksX Bot", a high-end financial news anchor. 
+        Create a consolidated "Morning/Market Pulse" update based on the news items provided.
+        
+        NEWS ITEMS:
+        ${newsContext}
 
         CONSTRAINTS:
-        - Start with the text: 🚀 **Breaking Market Update**
-        - Provide exactly 2 bullet points using the "•" character.
-        - First bullet: A summary of what happened.
-        - Second bullet: The likely impact on the Indian Stock Market or specific sectors.
-        - Use stock symbols like $RELIANCE or $NIFTY50.
-        - Use 1 relevant emoji per point.
-        - DO NOT write any introductory sentences or paragraphs.
-        - DO NOT include the source link in your summary.
+        - Start with: 📊 **StocksX Market Pulse**
+        - For each relevant news item, provide a single bullet point (use "•").
+        - Each point should be a concise summary + the market impact.
+        - Mentions stocks as $TICKER (e.g. $RELIANCE, $NIFTY50).
+        - Use 1 relevant emoji per bullet.
+        - VERY IMPORTANT: At the end of EACH bullet point, add a markdown link like this: [Read More](LINK)
+        - DO NOT add introduction text or outro text. Just the header and bullets.
         
-        Output ONLY the bulleted list.
+        Output ONLY the structured market pulse text.
         `;
 
         try {
-            this.logger.log('Generating AI content (strict point-wise)...');
-            // Using a more standard model string
+            this.logger.log('Generating AI Consolidated content...');
             const model = this.aiConfig.getModel({ model: 'models/gemini-flash-latest', isSOW: false });
             if (!model) {
                 this.logger.error('No AI Model available.');
@@ -122,16 +126,12 @@ export class NewsBotService {
 
             const result = await model.generateContent(prompt);
             const response = await result.response;
-            let aiText = response.text().trim();
+            const postContent = response.text().trim();
 
-            if (!aiText) {
+            if (!postContent) {
                 this.logger.warn('AI generated empty content.');
                 return false;
             }
-
-            // Append the link in a very clean way
-            const cleanLink = item.link.trim();
-            const postContent = `${aiText}\n\n🔗 **Further Reading**: [Click here for full report](${cleanLink})`;
 
             // 6. Post to Feed
             await this.prisma.post.create({
@@ -141,11 +141,11 @@ export class NewsBotService {
                 }
             });
 
-            this.logger.log(`🚀 Successfully posted: ${item.title}`);
+            this.logger.log(`🚀 Successfully posted consolidated pulse with ${items.length} items.`);
             return true;
 
         } catch (e) {
-            this.logger.error('AI Processing failed', e.message);
+            this.logger.error('AI Consolidated Processing failed', e.message);
             return false;
         }
     }
