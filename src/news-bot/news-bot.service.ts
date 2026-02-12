@@ -90,21 +90,22 @@ export class NewsBotService {
     }
 
     private async generateAndPost(item: any, userId: string): Promise<boolean> {
-        // 5. AI Summarization
+        // 5. AI Summarization - Keep it concise
         const prompt = `
-        Act as "StocksX Bot", a smart financial news anchor on a social media app.
-        Summarize this news into a short, engaging post (max 2-3 sentences).
+        Act as "StocksX Bot", a smart financial news anchor. 
+        Summarize this news into 1-2 VERY short, punchy sentences. 
+        Focus on the impact on the Indian market.
         
         HEADLINE: ${item.title}
-        LINK: ${item.link}
+        CONTENT: ${item.contentSnippet || ''}
 
         Guidelines:
         - Use 1-2 relevant emojis.
-        - Mentions stocks as $TICKER if applicable.
-        - Add #India #StockMarket.
-        - End with the source link.
+        - Mentions stocks as $TICKER (e.g. $RELIANCE).
+        - Add #StockMarket #India.
+        - DO NOT include the link in your response.
         
-        Output ONLY the text.
+        Output ONLY the summary text.
         `;
 
         try {
@@ -118,12 +119,16 @@ export class NewsBotService {
 
             const result = await model.generateContent(prompt);
             const response = await result.response;
-            const postContent = response.text().trim();
+            let postContent = response.text().trim();
 
             if (!postContent) {
                 this.logger.warn('AI generated empty content.');
                 return false;
             }
+
+            // Append the link manually to ensure it's not mangled by AI
+            const cleanLink = item.link.trim();
+            postContent = `${postContent}\n\nRead more: ${cleanLink}`;
 
             // 6. Post to Feed
             await this.prisma.post.create({
