@@ -17,15 +17,16 @@ export class StocksService {
 
     try {
       // Dynamic import to handle ESM/CommonJS quirks of this library
+      // @ts-ignore
       const pkg = await import('yahoo-finance2');
       const YahooFinanceClass = pkg.default || pkg;
 
       if (typeof YahooFinanceClass === 'function') {
         const config = {
           validation: { logErrors: false },
-          suppressNotices: ['yahooSurvey'],
         };
-        this.yahooFinance = new YahooFinanceClass(config as any);
+        // @ts-ignore
+        this.yahooFinance = new YahooFinanceClass(config);
       } else {
         this.yahooFinance = YahooFinanceClass;
       }

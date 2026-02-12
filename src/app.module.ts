@@ -13,7 +13,9 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ConfigModule } from '@nestjs/config';
 import { AdminModule } from './admin/admin.module';
+
 import { CronModule } from './cron/cron.module';
+import { NewsBotModule } from './news-bot/news-bot.module';
 
 @Module({
   imports: [
@@ -28,6 +30,7 @@ import { CronModule } from './cron/cron.module';
     InvestorsModule,
     AdminModule,
     CronModule,
+    NewsBotModule,
   ],
   controllers: [AppController],
   providers: [AppService],
