@@ -58,8 +58,8 @@ export class StockOfTheWeekService implements OnModuleInit {
     setTimeout(() => this.syncMaxHigh(), 10000);
   }
 
-  // Run every Sunday at 2:00 AM
-  @Cron('0 2 * * 0')
+  // Run every Sunday at 12:00 PM IST (6:30 AM UTC)
+  @Cron('30 6 * * 0')
   async handleWeeklySelection() {
     this.logger.log('Starting weekly stock selection process...');
     await this.selectStockOfTheWeek();
@@ -90,6 +90,7 @@ export class StockOfTheWeekService implements OnModuleInit {
         (s) =>
           s.currentPrice !== null &&
           s.marketCap !== null &&
+          s.marketCap > 100000000000 && // Filter: Market Cap > ₹10,000 Cr (1 Cr = 10^7, 10k Cr = 10^11) 
           s.peRatio !== null &&
           s.returnOnEquity !== null &&
           s.high52Week !== null &&
