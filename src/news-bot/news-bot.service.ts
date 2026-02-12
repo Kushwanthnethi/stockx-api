@@ -98,26 +98,29 @@ export class NewsBotService {
         `).join('\n------------------\n');
 
         const prompt = `
-        Act as "StocksX Bot", a high-end financial news anchor. 
-        Create a consolidated "Morning/Market Pulse" update based on the news items provided.
-        
+        Act as "StocksX Bot", a high-end financial news anchor for Indian investors.
+        Your goal is to provide a concise "Market Pulse" summary of ONLY significant, high-impact news.
+
         NEWS ITEMS:
         ${newsContext}
 
-        CONSTRAINTS:
-        - Start with: 📊 **StocksX Market Pulse**
-        - For each relevant news item, provide a single bullet point (use "•").
-        - Each point should be a concise summary + the market impact.
-        - Mentions stocks as $TICKER (e.g. $RELIANCE, $NIFTY50).
-        - Use 1 relevant emoji per bullet.
-        - VERY IMPORTANT: At the end of EACH bullet point, add a markdown link like this: [Read More](LINK)
-        - DO NOT add introduction text or outro text. Just the header and bullets.
+        CONSTRAINTS & QUALITY FILTER:
+        - If NONE of the news items are significant or market-moving for Indian investors, output ONLY the word "SKIP".
+        - Trivial updates, general global news with no India link, or repetitive technical noise should be ignored.
+        - If there is important news:
+            - Start with: 📊 **StocksX Market Pulse**
+            - For each significant news item, provide a single bullet point (use "•").
+            - Each point should be a concise summary + the market impact.
+            - Mention stocks as $TICKER (e.g. $RELIANCE, $NIFTY50).
+            - Use 1 relevant emoji per bullet.
+            - End each bullet with a markdown link: [Read More](LINK)
+            - DO NOT add introduction or outro text.
         
-        Output ONLY the structured market pulse text.
+        Output ONLY the structured market pulse text or "SKIP".
         `;
 
         try {
-            this.logger.log('Generating AI Consolidated content...');
+            this.logger.log('Generating AI Consolidated content with Quality Filter...');
             const model = this.aiConfig.getModel({ model: 'models/gemini-flash-latest', isSOW: false });
             if (!model) {
                 this.logger.error('No AI Model available.');
@@ -128,8 +131,8 @@ export class NewsBotService {
             const response = await result.response;
             const postContent = response.text().trim();
 
-            if (!postContent) {
-                this.logger.warn('AI generated empty content.');
+            if (!postContent || postContent.toUpperCase() === 'SKIP') {
+                this.logger.log('AI filtered out news as unimportant. Skipping post.');
                 return false;
             }
 
