@@ -11,13 +11,18 @@ import * as crypto from 'crypto';
 export class NewsBotService {
     private readonly logger = new Logger(NewsBotService.name);
     private parser = new Parser();
-    private readonly BOT_HANDLE = 'stocksxbot';
+
+    // Pool of bot handles to rotate through
+    private readonly BOT_HANDLES = [
+        'stocksxbot', 'stocksxbot_2', 'stocksxbot_3', 'stocksxbot_4', 'stocksxbot_5',
+        'stocksxbot_6', 'stocksxbot_7', 'stocksxbot_8', 'stocksxbot_9', 'stocksxbot_10'
+    ];
 
     constructor(
         private prisma: PrismaService,
         private aiConfig: AIConfigService,
     ) {
-        this.logger.log('NewsBotService Instance Created');
+        this.logger.log('NewsBotService Instance Created with Multi-Bot Support');
     }
 
     // Run every 2 hours
@@ -30,39 +35,60 @@ export class NewsBotService {
     async processNewsFeed() {
         this.logger.log('Starting processNewsFeed()...');
         try {
-            // 1. Fetch RSS Feed (Google News - Indian Stock Market)
-            const feedUrl = 'https://news.google.com/rss/search?q=Indian+Stock+Market&hl=en-IN&gl=IN&ceid=IN:en';
-            this.logger.log(`Fetching RSS from: ${feedUrl}`);
-            const feed = await this.parser.parseURL(feedUrl);
-            this.logger.log(`Found ${feed.items?.length || 0} items in feed.`);
+            // 1. Fetch Indian Stock Market News
+            const indiaFeedUrl = 'https://news.google.com/rss/search?q=Indian+Stock+Market&hl=en-IN&gl=IN&ceid=IN:en';
+            const indiaFeed = await this.parser.parseURL(indiaFeedUrl);
 
-            if (!feed.items || feed.items.length === 0) {
-                this.logger.warn('No news found in RSS feed.');
+            // 2. Fetch Global Economy News (impacting India)
+            const globalFeedUrl = 'https://news.google.com/rss/search?q=Global+Economy+India+Impact&hl=en-IN&gl=IN&ceid=IN:en';
+            const globalFeed = await this.parser.parseURL(globalFeedUrl);
+
+            this.logger.log(`Fetched ${indiaFeed.items?.length || 0} India items and ${globalFeed.items?.length || 0} Global items.`);
+
+            const allItems = [...(indiaFeed.items || []), ...(globalFeed.items || [])];
+
+            if (allItems.length === 0) {
+                this.logger.warn('No news found in RSS feeds.');
                 return;
             }
 
-            // 2. Get Bot User ID
+            // 3. Select a Random Bot Identity
+            const randomHandle = this.BOT_HANDLES[Math.floor(Math.random() * this.BOT_HANDLES.length)];
             const botUser = await this.prisma.user.findUnique({
-                where: { handle: this.BOT_HANDLE },
+                where: { handle: randomHandle },
             });
 
             if (!botUser) {
-                this.logger.error(`Bot user @${this.BOT_HANDLE} not found! Run seed-bot.ts.`);
+                this.logger.error(`Selected Bot user @${randomHandle} not found! Run seed-bots.ts.`);
                 return;
             }
+            this.logger.log(`Selected Bot Identity: ${botUser.firstName} ${botUser.lastName} (@${randomHandle})`);
 
-            // 3. Collect Fresh News Items (Group up to 5 items)
+            // 4. Collect Fresh News Items (Deduplicated)
             const freshItems = [];
-            const checkLimit = 10; // Look at top 10 for duplicates
-            const latestPool = feed.items.slice(0, checkLimit);
+            const checkLimit = 20; // Look at top 20 combined
+            // Simple shuffle or just take top from both? Let's interleave or just take top 
+            // from combined to ensure we get the absolute latest.
+            // Sorting by pubDate is better.
+            allItems.sort((a, b) => {
+                const dateA = a.pubDate ? new Date(a.pubDate).getTime() : 0;
+                const dateB = b.pubDate ? new Date(b.pubDate).getTime() : 0;
+                return dateB - dateA;
+            });
+
+            const latestPool = allItems.slice(0, checkLimit);
 
             for (const item of latestPool) {
                 if (!item.title || !item.link) continue;
 
-                // Check for duplicate in last 24h
+                // Check for duplicate in last 24h across ALL bot users
+                // We want to avoid posting the same news event even if a different bot posts it?
+                // Or just avoid exact title match?
+                // Let's check global duplicates to avoid spam.
                 const duplicate = await this.prisma.post.findFirst({
                     where: {
-                        userId: botUser.id,
+                        // Check if ANY bot has posted this recently to avoid repetition
+                        user: { handle: { in: this.BOT_HANDLES } },
                         content: { contains: item.title.substring(0, 30) },
                         createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
                     }
@@ -72,7 +98,7 @@ export class NewsBotService {
                     freshItems.push(item);
                 }
 
-                if (freshItems.length >= 5) break;
+                if (freshItems.length >= 8) break; // Collect enough candidates for AI to choose from
             }
 
             if (freshItems.length === 0) {
@@ -95,28 +121,32 @@ export class NewsBotService {
         TITLE: ${item.title}
         CONTENT: ${item.contentSnippet || ''}
         LINK: ${item.link}
+        SOURCE: ${item.source || 'News'}
         `).join('\n------------------\n');
 
         const prompt = `
-        Act as "StocksX Bot", a high-end financial news anchor for Indian investors.
-        Your goal is to provide a concise "Market Pulse" summary of ONLY significant, high-impact news.
+        Act as "StocksX Bot", a premium AI market analyst.
+        Your goal is to provide a "Market Pulse" update that combines Indian Market News AND Key International Developments affecting India (like Fed rates, crude oil, US tech stocks, etc.).
 
         NEWS ITEMS:
         ${newsContext}
 
-        CONSTRAINTS & QUALITY FILTER:
-        - If NONE of the news items are significant or market-moving for Indian investors, output ONLY the word "SKIP".
-        - Trivial updates, general global news with no India link, or repetitive technical noise should be ignored.
-        - If there is important news:
-            - Start with: 📊 **StocksX Market Pulse**
-            - For each significant news item, provide a single bullet point (use "•").
-            - Each point should be a concise summary + the market impact.
-            - Mention stocks as $TICKER (e.g. $RELIANCE, $NIFTY50).
-            - Use 1 relevant emoji per bullet.
-            - End each bullet with a markdown link: [Read More](LINK)
-            - DO NOT add introduction or outro text.
+        CONSTRAINTS & FORMAT:
+        - If the news is trivial, output "SKIP".
+        - Start with: 📊 **StocksX Market Pulse**
+        - Select the top 3-4 most impactful stories from the list. 
+        - Ensure a mix of domestic (India) and global (US/World) news if available.
+        - Format as bullet points (•).
+        - Use concise, professional financial language.
+        - For each point, explain the *impact* on Indian investors.
+        - Mention tickers as $TICKER (e.g. $NIFTY50, $HDFCBANK, $TSLA, $AAPL).
+        - ADD A NEW PROFILE PICTURE TWIST: The user sees a fresh bot avatar for this post.
+        - End each bullet with [Read More](LINK).
+
+        Example Item:
+        • US Federal Reserve holds rates steady, signaling a positive cue for emerging markets. Impact: $NIFTY50 likely to open gap-up. 🌍 [Read More](...)
         
-        Output ONLY the structured market pulse text or "SKIP".
+        Output ONLY the content.
         `;
 
         try {

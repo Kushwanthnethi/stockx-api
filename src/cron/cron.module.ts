@@ -5,7 +5,6 @@ import { EarningsScheduler } from './earnings-scheduler';
 
 @Module({
     imports: [
-        ScheduleModule.forRoot(),
         StocksModule
     ],
     providers: [EarningsScheduler],
