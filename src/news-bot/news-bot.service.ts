@@ -140,7 +140,6 @@ export class NewsBotService {
         - Use concise, professional financial language.
         - For each point, explain the *impact* on Indian investors.
         - Mention tickers as $TICKER (e.g. $NIFTY50, $HDFCBANK, $TSLA, $AAPL).
-        - ADD A NEW PROFILE PICTURE TWIST: The user sees a fresh bot avatar for this post.
         - End each bullet with [Read More](LINK).
 
         Example Item:
