@@ -87,6 +87,50 @@ export class NewsBotService {
             }
             // ---------------------------------------------------
 
+            // --- WEEKEND MODE LOGIC ---
+            // On Weekends (Sat/Sun), reduce frequency.
+            // Only post at "Peak Hours": 9 AM, 1 PM, 5 PM, 9 PM.
+            // At other times, use STRICT FILTER (only Breaking News).
+            const now = new Date();
+            const day = now.getDay(); // 0 = Sunday, 6 = Saturday
+            const hour = now.getHours();
+            const isWeekend = day === 0 || day === 6;
+            const allowedWeekendHours = [9, 13, 17, 21];
+
+            let strictImportanceFilter = false;
+
+            if (isWeekend) {
+                // If it's a weekend and not a peak hour, enforce strict filter.
+                // We use a range match (e.g., if cron runs at 9:05, strictly 9 match is okay)
+                // Cron is every 2 hours: 0, 2, 4... 8, 10, 12...
+                // Our Cron is '0 */2 * * *' => 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22
+                // Closest allowed hours in cron schedule:
+                // 9 -> Cron runs at 8 or 10. Let's adjust allowed hours to match Cron capabilities or check loosely.
+                // Actually, let's map Cron hours to desired "slots".
+                // Desired: ~9 AM -> Cron 8 or 10
+                // Desired: ~1 PM -> Cron 12 or 14
+                // Desired: ~5 PM -> Cron 16 or 18
+                // Desired: ~9 PM -> Cron 20 or 22
+
+                // Let's say we allow posting if hour is 8, 10, 12, 14, 16, 18, 20, 22? No that's all day.
+                // Let's pick specific cron hours that align nicely.
+                // Morning: 8 or 10 (Pick 10)
+                // Afternoon: 12 or 14 (Pick 14)
+                // Evening: 16 or 18 (Pick 18)
+                // Night: 20 or 22 (Pick 22)
+                // So Allowed Cron Hours = [10, 14, 18, 22]
+
+                const peakCronHours = [10, 14, 18, 22];
+
+                if (!peakCronHours.includes(hour)) {
+                    strictImportanceFilter = true;
+                    this.logger.log(`😴 Weekend Off-Hour (${hour}:00). Enabling STRICT IMPORTANCE FILTER (Breaking News Only).`);
+                } else {
+                    this.logger.log(`🔔 Weekend Peak Hour (${hour}:00). Standard posting enabled.`);
+                }
+            }
+            // --------------------------
+
             // 4. Collect Fresh News Items (Deduplicated)
             const freshItems = [];
             const checkLimit = 20; // Look at top 20 combined
@@ -130,14 +174,14 @@ export class NewsBotService {
             }
 
             this.logger.log(`Found ${freshItems.length} fresh news items. Generating consolidated pulse post.`);
-            await this.generateAndPostConsolidated(freshItems, botUser.id, skipIndices);
+            await this.generateAndPostConsolidated(freshItems, botUser.id, skipIndices, strictImportanceFilter);
 
         } catch (error) {
             this.logger.error('Failed to process news feed', error);
         }
     }
 
-    private async generateAndPostConsolidated(items: any[], userId: string, skipIndices: boolean): Promise<boolean> {
+    private async generateAndPostConsolidated(items: any[], userId: string, skipIndices: boolean, strictImportanceFilter: boolean): Promise<boolean> {
         // Prepare news context for AI
         const newsContext = items.map((item, idx) => `
         ITEM ${idx + 1}:
@@ -151,18 +195,31 @@ export class NewsBotService {
             ? `IMPORTANT: DO NOT mention broad market indices ($NIFTY50, $SENSEX) in this update. We recently updated on them. Focus strictly on specific company news, sector movements (e.g. IT, Auto, Banks), and global cues.`
             : `Start with a concise sentnece on the broader market mood ($NIFTY50 / $SENSEX).`;
 
+        const weekendInstruction = strictImportanceFilter
+            ? `
+            ⚠️ WEEKEND MODE ACTIVE:
+            You are currently in "Quiet Mode". 
+            Evaluate the news items STRICTLY.
+            - If there is NO major breaking news (e.g. natural disaster, war, massive regulatory ban, unexpected crash), output "SKIP".
+            - Do NOT post about routine earnings, minor price movements, or general analysis.
+            - Only post if it is URGENT or HIGH IMPACT.
+            `
+            : ``;
+
         const prompt = `
         Act as "StocksX Bot", a premium AI market analyst.
         Your goal is to provide a "Market Pulse" update based on the news below.
         
         ${indexInstruction}
 
+        ${weekendInstruction}
+
         NEWS ITEMS:
         ${newsContext}
 
         CONSTRAINTS & FORMAT:
         - If the news is trivial, output "SKIP".
-        - Start with: 📊 **StocksX Market Pulse**
+        - Start with: 📊 **StocksX Market Pulse** (only if you decide to post)
         - Select the top 3-4 most impactful stories from the list. 
         - Ensure a mix of domestic (India) and global (US/World) news if available.
         - Format as bullet points (•).
