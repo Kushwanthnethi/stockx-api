@@ -64,6 +64,29 @@ export class NewsBotService {
             }
             this.logger.log(`Selected Bot Identity: ${botUser.firstName} ${botUser.lastName} (@${randomHandle})`);
 
+            // --- NEW LOGIC: Check Frequency of Index Updates ---
+            // We want to limit generic "Nifty/Sensex" updates to once every 4 posts (approx).
+            // Check the last 3 posts from ANY bot.
+            const lastBotPosts = await this.prisma.post.findMany({
+                where: {
+                    user: { handle: { in: this.BOT_HANDLES } }
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 3
+            });
+
+            const hasRecentIndexUpdate = lastBotPosts.some(p =>
+                p.content.includes('$NIFTY50') || p.content.includes('$SENSEX')
+            );
+
+            const skipIndices = hasRecentIndexUpdate;
+            if (skipIndices) {
+                this.logger.log('📉 Recent Index Update found. Skipping Nifty/Sensex for this post to keep content fresh.');
+            } else {
+                this.logger.log('📈 Time for an Index Update. This post will include Nifty/Sensex commentary.');
+            }
+            // ---------------------------------------------------
+
             // 4. Collect Fresh News Items (Deduplicated)
             const freshItems = [];
             const checkLimit = 20; // Look at top 20 combined
@@ -107,14 +130,14 @@ export class NewsBotService {
             }
 
             this.logger.log(`Found ${freshItems.length} fresh news items. Generating consolidated pulse post.`);
-            await this.generateAndPostConsolidated(freshItems, botUser.id);
+            await this.generateAndPostConsolidated(freshItems, botUser.id, skipIndices);
 
         } catch (error) {
             this.logger.error('Failed to process news feed', error);
         }
     }
 
-    private async generateAndPostConsolidated(items: any[], userId: string): Promise<boolean> {
+    private async generateAndPostConsolidated(items: any[], userId: string, skipIndices: boolean): Promise<boolean> {
         // Prepare news context for AI
         const newsContext = items.map((item, idx) => `
         ITEM ${idx + 1}:
@@ -124,9 +147,15 @@ export class NewsBotService {
         SOURCE: ${item.source || 'News'}
         `).join('\n------------------\n');
 
+        const indexInstruction = skipIndices
+            ? `IMPORTANT: DO NOT mention broad market indices ($NIFTY50, $SENSEX) in this update. We recently updated on them. Focus strictly on specific company news, sector movements (e.g. IT, Auto, Banks), and global cues.`
+            : `Start with a concise sentnece on the broader market mood ($NIFTY50 / $SENSEX).`;
+
         const prompt = `
         Act as "StocksX Bot", a premium AI market analyst.
-        Your goal is to provide a "Market Pulse" update that combines Indian Market News AND Key International Developments affecting India (like Fed rates, crude oil, US tech stocks, etc.).
+        Your goal is to provide a "Market Pulse" update based on the news below.
+        
+        ${indexInstruction}
 
         NEWS ITEMS:
         ${newsContext}
@@ -139,11 +168,11 @@ export class NewsBotService {
         - Format as bullet points (•).
         - Use concise, professional financial language.
         - For each point, explain the *impact* on Indian investors.
-        - Mention tickers as $TICKER (e.g. $NIFTY50, $HDFCBANK, $TSLA, $AAPL).
+        - Mention tickers as $TICKER (e.g. $HDFCBANK, $TSLA, $AAPL).
         - End each bullet with [Read More](LINK).
 
         Example Item:
-        • US Federal Reserve holds rates steady, signaling a positive cue for emerging markets. Impact: $NIFTY50 likely to open gap-up. 🌍 [Read More](...)
+        • US Federal Reserve holds rates steady, signaling a positive cue for emerging markets. Impact: Banking stocks likely to see buying interest. 🌍 [Read More](...)
         
         Output ONLY the content.
         `;
