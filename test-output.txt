@@ -1,0 +1,18 @@
+Start...
+
+Fetching RELIANCE.NS...
+[FOUND] RELIANCE.NS Earnings Date: ["2026-01-16T10:00:00.000Z"]
+[EARNINGS_MOD] RELIANCE.NS Latest: {"date":"4Q2025","fiscalQuarter":"3Q2026","revenue":2649050000000,"earnings":186450000000}
+
+Fetching TCS.NS...
+[FOUND] TCS.NS Earnings Date: ["2026-04-09T10:00:00.000Z"]
+[EARNINGS_MOD] TCS.NS Latest: {"date":"4Q2025","fiscalQuarter":"3Q2026","revenue":670870000000,"earnings":132391509000}
+
+Fetching INFY.NS...
+[FOUND] INFY.NS Earnings Date: ["2026-01-14T10:00:00.000Z"]
+[EARNINGS_MOD] INFY.NS Latest: {"date":"4Q2025","fiscalQuarter":"3Q2026","revenue":454790000000,"earnings":66540000000}
+
+Fetching HDFCBANK.NS...
+[FOUND] HDFCBANK.NS Earnings Date: ["2026-04-18T10:00:00.000Z"]
+[EARNINGS_MOD] HDFCBANK.NS Latest: {"date":"4Q2025","fiscalQuarter":"3Q2026","revenue":458688400000,"earnings":186537500000}
+[ERROR] ZOMATO.NS: No fundamentals data found for symbol: ZOMATO.NS

@@ -79,26 +79,52 @@ export class StocksService {
           const history = summary.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
           if (history.length > 0) {
             return history.map((q: any) => {
-              const sales = q.totalRevenue?.raw || 0;
-              const netProfit = q.netIncome?.raw || 0;
-              const pbt = q.incomeBeforeTax?.raw || 0;
-              const tax = q.incomeTaxExpense?.raw || 0;
-              const operatingProfit = q.operatingIncome?.raw || (pbt + (q.interestExpense?.raw || 0));
+              const getValue = (val: any) => (val?.raw !== undefined ? val.raw : val) || 0;
+              const getDate = (val: any) => (val?.raw !== undefined ? val.raw : val);
+
+              const sales = getValue(q.totalRevenue);
+              const netProfit = getValue(q.netIncome);
+              const pbt = getValue(q.incomeBeforeTax);
+              const tax = getValue(q.incomeTaxExpense);
+              const interest = getValue(q.interestExpense);
+              const ebit = getValue(q.ebit);
+
+              // Improved logic for Operating Profit / EBITDA
+              // If operatingIncome is missing, try EBIT. If that's 0 (which is rare for profitable cos), try derived.
+              let operatingProfit = getValue(q.operatingIncome);
+              if (!operatingProfit) {
+                operatingProfit = ebit || (pbt + interest);
+              }
+              // If STILL 0 and we have Net Profit, assume OP is at least Net Profit + Tax (very rough proxy, but better than 0 for display)
+              if (!operatingProfit && netProfit > 0) {
+                operatingProfit = pbt + interest;
+              }
+
+              const dateRaw = getDate(q.endDate);
+              const dateVal = dateRaw ? dateRaw * 1000 : 0;
+
+              // Basic EPS might be directly available in some payloads, but often missing in quarterly history
+              // We can try to use 'netIncomeApplicableToCommonShares' / 'sharesOutstanding' if we had shares, but we don't here.
+              // So for now, we rely on what's there or 0.
+              const eps = getValue(q.basicEps);
 
               return {
-                date: q.endDate?.raw * 1000,
-                formattedDate: new Date(q.endDate?.raw * 1000).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+                date: dateVal,
+                formattedDate: dateVal ? new Date(dateVal).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '-',
                 sales,
                 expenses: Math.max(0, sales - operatingProfit),
                 operatingProfit,
                 opmPercent: sales > 0 ? (operatingProfit / sales) * 100 : 0,
                 otherIncome: pbt - operatingProfit,
-                interest: q.interestExpense?.raw || 0,
+                interest,
                 depreciation: 0,
                 pbt,
                 taxPercent: pbt > 0 ? (tax / pbt) * 100 : 0,
                 netProfit,
-                eps: 0
+                netIncome: netProfit,
+                eps,
+                revenue: sales,
+                ebitda: operatingProfit
               };
             }).reverse();
           }
@@ -116,7 +142,7 @@ export class StocksService {
                 formattedDate: q.date,
                 sales,
                 expenses: Math.max(0, sales - netProfit),
-                operatingProfit: netProfit,
+                operatingProfit: netProfit, // In earnings module, we often only have rev/earnings. Earnings ~ Net Profit. Proxy OP as Net Profit.
                 opmPercent: sales > 0 ? (netProfit / sales) * 100 : 0,
                 otherIncome: 0,
                 interest: 0,
@@ -124,7 +150,10 @@ export class StocksService {
                 pbt: netProfit,
                 taxPercent: 0,
                 netProfit,
-                eps: 0
+                netIncome: netProfit,
+                eps: 0, // Earnings module rarely has EPS. Leave as 0.
+                revenue: sales,
+                ebitda: netProfit // Proxy EBITDA as Net Profit (conservative)
               };
             });
           }
@@ -163,7 +192,10 @@ export class StocksService {
         pbt,
         taxPercent,
         netProfit,
-        eps
+        netIncome: netProfit,
+        eps,
+        revenue: sales,
+        ebitda: operatingProfit
       };
     });
   }
@@ -881,8 +913,8 @@ export class StocksService {
                     eps: growth(current?.eps, prev?.eps),
                   },
                   yoy: {
-                    revenue: growth(current?.sales, yearAgo?.sales),
-                    netIncome: growth(current?.netProfit, yearAgo?.netProfit),
+                    revenue: growth(current?.sales, yearAgo?.sales) || res.financialData?.revenueGrowth,
+                    netIncome: growth(current?.netProfit, yearAgo?.netProfit) || res.defaultKeyStatistics?.earningsQuarterlyGrowth,
                     operatingIncome: growth(current?.operatingProfit, yearAgo?.operatingProfit),
                     eps: growth(current?.eps, yearAgo?.eps),
                   }
