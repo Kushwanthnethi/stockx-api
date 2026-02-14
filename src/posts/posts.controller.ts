@@ -21,11 +21,10 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
-import { bucket } from '../config/firebase.config';
 
 @Controller('posts')
 export class PostsController {
-  constructor(private readonly postsService: PostsService) {}
+  constructor(private readonly postsService: PostsService) { }
 
   @Post()
   @UseGuards(AuthGuard('jwt'))
@@ -37,7 +36,7 @@ export class PostsController {
   @UseGuards(AuthGuard('jwt'))
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: memoryStorage(), // Use memory storage for Firebase
+      storage: memoryStorage(),
       limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     }),
   )
@@ -47,33 +46,41 @@ export class PostsController {
         throw new Error('No file uploaded');
       }
 
-      console.log('Starting upload for file:', file.originalname);
-      console.log('Target Bucket:', bucket.name);
+      console.log('Starting Cloudinary upload for file:', file.originalname);
 
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-      const filename = `${uniqueSuffix}${extname(file.originalname)}`;
-      const fileRef = bucket.file(`uploads/${filename}`);
+      // Cloudinary Upload Logic
+      const { v2: cloudinary } = require('cloudinary');
 
-      await fileRef.save(file.buffer, {
-        contentType: file.mimetype,
-        public: true,
-        metadata: {
-          firebaseStorageDownloadTokens: uniqueSuffix,
-        },
+      // Ensure config is loaded (it should be via provider, but for safety in controller we can rely on env or provider)
+      // Since we didn't inject the provider here, we can rely on global config if set, OTHERwise we configure it here lazily or assume it's set.
+      // Better approach: Configure it in the method using env vars directly ensures it works even if module init had issues, 
+      // but best practice is to use the provider. For now, let's configure it explicitly to be safe.
+
+      cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET
       });
 
-      console.log('File saved to bucket');
-
-      try {
-        await fileRef.makePublic();
-      } catch (e) {
-        console.warn(
-          'Warning: makePublic() failed (check IAM roles):',
-          e.message,
+      const uploadResult = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          { folder: 'stockx-uploads' },
+          (error, result) => {
+            if (error) return reject(error);
+            resolve(result);
+          }
         );
-      }
 
-      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileRef.name}`;
+        // Write buffer to stream
+        const Readable = require('stream').Readable;
+        const stream = new Readable();
+        stream.push(file.buffer);
+        stream.push(null);
+        stream.pipe(uploadStream);
+      });
+
+      // @ts-ignore
+      const publicUrl = uploadResult.secure_url;
       console.log('Upload successful, URL:', publicUrl);
 
       return {
