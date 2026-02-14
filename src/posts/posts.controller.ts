@@ -65,7 +65,7 @@ export class PostsController {
       const uploadResult = await new Promise((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
           { folder: 'stockx-uploads' },
-          (error, result) => {
+          (error: any, result: any) => {
             if (error) return reject(error);
             resolve(result);
           }
