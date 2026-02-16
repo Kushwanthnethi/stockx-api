@@ -16,6 +16,8 @@ import { AdminModule } from './admin/admin.module';
 
 import { CronModule } from './cron/cron.module';
 import { NewsBotModule } from './news-bot/news-bot.module';
+import { PortfoliosModule } from './portfolios/portfolios.module';
+import { StrategistModule } from './strategist/strategist.module';
 
 @Module({
   imports: [
@@ -31,6 +33,8 @@ import { NewsBotModule } from './news-bot/news-bot.module';
     AdminModule,
     CronModule,
     NewsBotModule,
+    PortfoliosModule,
+    StrategistModule,
   ],
   controllers: [AppController],
   providers: [AppService],
