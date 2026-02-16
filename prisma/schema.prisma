@@ -34,6 +34,7 @@ model User {
 
   watchlist    Watchlist[]
   visits       UserVisit[]
+  portfolios   UserPortfolio[]
 
   @@map("users")
 }
@@ -41,13 +42,70 @@ model User {
 model UserVisit {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
-  visitDate DateTime @db.Date @map("visit_date") // Just the date part matters
+  visitDate DateTime @db.Date @map("visit_date")
   createdAt DateTime @default(now()) @map("created_at")
 
   user      User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, visitDate])
   @@map("user_visits")
+}
+
+model UserPortfolio {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  name         String    @default("My Portfolio")
+  isEncrypted  Boolean   @default(true) @map("is_encrypted")
+  
+  // Encrypted holdings as a long string/blob
+  encryptedData String?  @map("encrypted_data") @db.Text
+  
+  // Non-encrypted analytics (optional, cached for UI speed)
+  totalValue   Float?    @map("total_value")
+  dayChange    Float?    @map("day_change")
+  
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  user         User      @relation(fields: [userId], references: [id])
+  stocks       UserPortfolioStock[]
+  analyses     UserPortfolioAnalysis[]
+
+  @@map("user_portfolios")
+}
+
+model UserPortfolioStock {
+  id               String   @id @default(uuid())
+  portfolioId      String   @map("portfolio_id")
+  stockSymbol      String   @map("stock_symbol")
+  
+  quantity         Float
+  averageBuyPrice  Float    @map("average_buy_price")
+  weightage        Float?   // Calculated % of total capital
+  
+  addedAt          DateTime @default(now()) @map("added_at")
+
+  portfolio        UserPortfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  stock            Stock         @relation(fields: [stockSymbol], references: [symbol])
+
+  @@map("user_portfolio_stocks")
+}
+
+model UserPortfolioAnalysis {
+  id            String   @id @default(uuid())
+  portfolioId   String   @map("portfolio_id")
+  
+  healthScore   Int      @map("health_score") // 0-100
+  riskLevel     String   @map("risk_level")   // LOW, MEDIUM, CRITICAL
+  
+  // AI-generated JSON insights
+  insights      Json     @map("insights")
+  
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  portfolio     UserPortfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@map("user_portfolio_analyses")
 }
 
 enum Role {
@@ -107,6 +165,7 @@ model Stock {
   stockOfTheWeeks StockOfTheWeek[]
   verdicts    StockVerdict[]
   financials  FinancialResult[]
+  userPortfolioStocks UserPortfolioStock[]
 
   @@map("stocks")
 }
