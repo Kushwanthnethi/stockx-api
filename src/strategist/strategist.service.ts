@@ -96,7 +96,7 @@ export class StrategistService {
         } catch (error: any) {
             if (error.status === 429 || error.message?.includes('429')) {
                 const targetPool = pool === 'none' ? 'strategist' : pool;
-                this.aiConfig.handleQuotaExceeded(60, targetPool as any);
+                this.aiConfig.handleQuotaExceeded(15, targetPool as any); // Faster recovery for strategist pool
 
                 if (retryCount < 3) {
                     const waitTime = (retryCount + 1) * 1000; // Faster retries: 1s, 2s, 3s
@@ -221,10 +221,10 @@ export class StrategistService {
         } catch (error: any) {
             if (error.status === 429 || error.message?.includes('429')) {
                 const targetPool = retryCount === 0 ? 'strategist' : 'shared'; // Simpler but pool info is better
-                this.aiConfig.handleQuotaExceeded(60, targetPool as any);
+                this.aiConfig.handleQuotaExceeded(15, targetPool as any); // Faster recovery
 
                 if (retryCount < 2) {
-                    const waitTime = (retryCount + 1) * 2000;
+                    const waitTime = (retryCount + 1) * 1000;
                     this.logger.warn(`AI Pool rotated (${targetPool}). Retrying symbol extraction in ${waitTime / 1000}s...`);
                     await new Promise(r => setTimeout(r, waitTime));
                     return this.extractSymbol(query, retryCount + 1);
