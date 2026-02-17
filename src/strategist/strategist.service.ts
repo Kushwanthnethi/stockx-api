@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AIConfigService } from '../stocks/ai-config.service';
 import * as TechnicalIndicators from 'technicalindicators';
+import { GroqService } from '../services/groq.service';
 
 @Injectable()
 export class StrategistService {
@@ -9,13 +10,79 @@ export class StrategistService {
     private yf: any;
 
     private static readonly COMMON_STOCKS: Record<string, string> = {
-        'RELIANCE': 'RELIANCE', 'TATA MOTORS': 'TATAMOTORS', 'HDFC BANK': 'HDFCBANK',
-        'INFY': 'INFY', 'ITC': 'ITC', 'SBI': 'SBIN', 'SBIN': 'SBIN', 'BAJFINANCE': 'BAJFINANCE',
-        'ZOMATO': 'ZOMATO', 'INDUS TOWERS': 'INDUSTOWER', 'BHARTI AIRTEL': 'BHARTIARTL',
-        'COAL INDIA': 'COALINDIA', 'ADANI ENT': 'ADANIENT', 'ASIAN PAINTS': 'ASIANPAINT',
-        'MARUTI': 'MARUTI', 'TITAN': 'TITAN', 'ULTRATECH': 'ULTRACEMCO', 'WIPRO': 'WIPRO',
-        'NESTLE': 'NESTLEIND', 'JSW STEEL': 'JSWSTEEL', 'GRASIM': 'GRASIM', 'L&T': 'LT',
-        'HCL TECH': 'HCLTECH', 'BSE': 'BSE', 'ANANT RAJ': 'ANANTRAJ', 'ANANTRAJ': 'ANANTRAJ'
+        // Nifty 50 / Major Large Caps
+        'RELIANCE': 'RELIANCE', 'TCS': 'TCS', 'HDFCBANK': 'HDFCBANK', 'ICICIBANK': 'ICICIBANK',
+        'INFY': 'INFY', 'BHARTIARTL': 'BHARTIARTL', 'ITC': 'ITC', 'SBIN': 'SBIN', 'SBI': 'SBIN',
+        'LICI': 'LICI', 'LIC': 'LICI', 'HINDUNILVR': 'HINDUNILVR', 'LT': 'LT', 'BAJFINANCE': 'BAJFINANCE',
+        'HCLTECH': 'HCLTECH', 'MARUTI': 'MARUTI', 'SUNPHARMA': 'SUNPHARMA', 'ADANIENT': 'ADANIENT',
+        'TATAMOTORS': 'TATAMOTORS', 'TITAN': 'TITAN', 'AXISBANK': 'AXISBANK', 'ONGC': 'ONGC',
+        'NTPC': 'NTPC', 'ULTRACEMCO': 'ULTRACEMCO', 'POWERGRID': 'POWERGRID', 'M&M': 'M&M',
+        'MAHINDRA': 'M&M', 'TATASTEEL': 'TATASTEEL', 'COALINDIA': 'COALINDIA', 'JSWSTEEL': 'JSWSTEEL',
+        'BAJAJFINSV': 'BAJAJFINSV', 'ADANIPORTS': 'ADANIPORTS', 'BPCL': 'BPCL', 'KOTAKBANK': 'KOTAKBANK',
+        'NESTLEIND': 'NESTLEIND', 'NESTLE': 'NESTLEIND', 'GRASIM': 'GRASIM', 'EICHERMOT': 'EICHERMOT',
+        'DRREDDY': 'DRREDDY', 'CIPLA': 'CIPLA', 'TATAELXSI': 'TATAELXSI', 'TECHM': 'TECHM',
+        'WIPRO': 'WIPRO', 'ADANIGREEN': 'ADANIGREEN', 'ADANIPOWER': 'ADANIPOWER', 'HAL': 'HAL',
+        'HINDUSTAN AERONAUTICS': 'HAL', 'BEL': 'BEL', 'BHARAT ELECTRONICS': 'BEL', 'VBL': 'VBL',
+        'VARUN BEVERAGES': 'VBL', 'IOC': 'IOC', 'VEDL': 'VEDL', 'VEDANTA': 'VEDL', 'DLF': 'DLF',
+        'SIEMENS': 'SIEMENS', 'LTIM': 'LTIM', 'LTIMINDTREE': 'LTIM', 'PIDILITIND': 'PIDILITIND',
+        'TRENT': 'TRENT', 'INDIGO': 'INDIGO', 'INTERGLOBE': 'INDIGO', 'ZOMATO': 'ZOMATO',
+        'GAIL': 'GAIL', 'AMBUJACEM': 'AMBUJACEM', 'PNB': 'PNB', 'BANKBARODA': 'BANKBARODA',
+        'CANBK': 'CANBK', 'DIVISLAB': 'DIVISLAB', 'DABUR': 'DABUR', 'GODREJCP': 'GODREJCP',
+        'SHREECEM': 'SHREECEM', 'CHOLAFIN': 'CHOLAFIN', 'TVSMOTOR': 'TVSMOTOR', 'HAVELLS': 'HAVELLS',
+        'ABB': 'ABB', 'INDUSINDBK': 'INDUSINDBK', 'NAUKRI': 'NAUKRI', 'INFOEDGE': 'NAUKRI',
+        'POLYCAB': 'POLYCAB', 'JIOFIN': 'JIOFIN', 'JIO FINANCIAL': 'JIOFIN', 'AUBANK': 'AUBANK',
+        'ALKEM': 'ALKEM', 'HDFCLIFE': 'HDFCLIFE', 'SBILIFE': 'SBILIFE', 'ICICIPRULI': 'ICICIPRULI',
+        'MOTHERSON': 'MOTHERSON', 'SAMVARDHANA': 'MOTHERSON', 'LODHA': 'LODHA', 'MACROTECH': 'LODHA',
+        'SRF': 'SRF', 'IRFC': 'IRFC', 'RVNL': 'RVNL', 'IRCON': 'IRCON', 'RITES': 'RITES',
+        'RAILTEL': 'RAILTEL', 'SJVN': 'SJVN', 'NHPC': 'NHPC', 'TORNTPOWER': 'TORNTPOWER',
+        'TATACHEM': 'TATACHEM', 'TATAPOWER': 'TATAPOWER', 'PATANJALI': 'PATANJALI', 'MARICO': 'MARICO',
+        'APOLLOHOSP': 'APOLLOHOSP', 'BOSCHLTD': 'BOSCHLTD', 'COLPAL': 'COLPAL', 'BERGEPAINT': 'BERGEPAINT',
+        'ICICIGI': 'ICICIGI', 'SBICARD': 'SBICARD', 'INDUSTOWER': 'INDUSTOWER', 'BHARATFORG': 'BHARATFORG',
+        'UNITEDSPIRITS': 'MCDOWELL-N', 'MCDOWELL': 'MCDOWELL-N', 'JINDALSTEL': 'JINDALSTEL',
+        'JSWENERGY': 'JSWENERGY', 'LUPIN': 'LUPIN', 'AUROPHARMA': 'AUROPHARMA', 'PERSISTENT': 'PERSISTENT',
+        'KPITTECH': 'KPITTECH', 'COFORGE': 'COFORGE', 'MUTHOOTFIN': 'MUTHOOTFIN', 'PIIND': 'PIIND',
+        'ASHOKLEY': 'ASHOKLEY', 'ASTRAL': 'ASTRAL', 'CUMMINSIND': 'CUMMINSIND', 'ABCAPITAL': 'ABCAPITAL',
+        'ADITYA BIRLA CAPITAL': 'ABCAPITAL', 'OBEROIRLTY': 'OBEROIRLTY', 'PHOENIXLTD': 'PHOENIXLTD',
+        'PRESTIGE': 'PRESTIGE', 'GODREJPROP': 'GODREJPROP', 'MANYATA': 'EMBASSY', 'EMBASSY': 'EMBASSY',
+        'SUZLON': 'SUZLON', 'IDEA': 'IDEA', 'VODAFONE IDEA': 'IDEA', 'YESBANK': 'YESBANK',
+        'IDFCFIRSTB': 'IDFCFIRSTB', 'FEDERALBNK': 'FEDERALBNK', 'BANDHANBNK': 'BANDHANBNK',
+        'INDIANB': 'INDIANB', 'UNIONBANK': 'UNIONBANK', 'MAHABANK': 'MAHABANK', 'UCOBANK': 'UCOBANK',
+        'IOB': 'IOB', 'CENTRALBK': 'CENTRALBK', 'J&KBANK': 'J&KBANK', 'KARURVYSYA': 'KARURVYSYA',
+        'CUB': 'CUB', 'CITY UNION': 'CUB', 'RBLBANK': 'RBLBANK', 'PAYTM': 'PAYTM',
+        'ONE97': 'PAYTM', 'NYKAA': 'NYKAA', 'FSN': 'NYKAA', 'DELHIVERY': 'DELHIVERY',
+        'PBFINTECH': 'POLICYBZR', 'POLICYBAZAAR': 'POLICYBZR', 'STARHEALTH': 'STARHEALTH',
+        'M&MFIN': 'M&MFIN', 'L&TFH': 'L&TFH', 'SHRIRAMFIN': 'SHRIRAMFIN', 'LICHSGFIN': 'LICHSGFIN',
+        'POONAWALLA': 'POONAWALLA', 'MANAPPURAM': 'MANAPPURAM', 'CREDITACC': 'CREDITACC',
+        'MRF': 'MRF', 'BALKRISIND': 'BALKRISIND', 'APOLLOTYRE': 'APOLLOTYRE', 'CEATLTD': 'CEATLTD',
+        'JKTYRE': 'JKTYRE', 'PAGEIND': 'PAGEIND', 'BATAINDIA': 'BATAINDIA', 'RELAXO': 'RELAXO',
+        'METROBRAND': 'METROBRAND', 'KALYANKJIL': 'KALYANKJIL', 'RAJESHEXPO': 'RAJESHEXPO',
+        'VOLTAS': 'VOLTAS', 'WHIRLPOOL': 'WHIRLPOOL', 'BLUESTARCO': 'BLUESTARCO', 'CROMPTON': 'CROMPTON',
+        'TTKPRESTIG': 'TTKPRESTIG', 'KAJARIACER': 'KAJARIACER', 'CENTURYPLY': 'CENTURYPLY',
+        'SUPREMEIND': 'SUPREMEIND', 'FINCABLES': 'FINCABLES', 'KEI': 'KEI', 'DIXON': 'DIXON',
+        'AMBER': 'AMBER', 'HONAUT': 'HONAUT', '3MINDIA': '3MINDIA', 'SCHAEFFLER': 'SCHAEFFLER',
+        'SKFINDIA': 'SKFINDIA', 'TIMKEN': 'TIMKEN', 'AIAENG': 'AIAENG', 'THERMAX': 'THERMAX',
+        'TRIVENI': 'TRIVENI', 'PRAJIND': 'PRAJIND', 'NBCC': 'NBCC', 'HUDCO': 'HUDCO',
+        'ACE': 'ACE', 'ACTION CONST': 'ACE', 'ENGINERSIN': 'ENGINERSIN', 'EIL': 'ENGINERSIN',
+        'BHEL': 'BHEL', 'COCHINSHIP': 'COCHINSHIP', 'MAZDOCK': 'MAZDOCK', 'GRSE': 'GRSE',
+        'BDL': 'BDL', 'DATAPATTNS': 'DATAPATTNS', 'MTARTECH': 'MTARTECH', 'PARAS': 'PARAS',
+        'SOLARINDS': 'SOLARINDS', 'ZEN': 'ZENTEC', 'ZENTEC': 'ZENTEC', 'ASTRAMICRO': 'ASTRAMICRO',
+        'BEML': 'BEML', 'ANANTRAJ': 'ANANTRAJ', 'ANANT RAJ': 'ANANTRAJ', 'BSE': 'BSE',
+        'CDSL': 'CDSL', 'MCX': 'MCX', 'IEX': 'IEX', 'CAMS': 'CAMS',
+        'ANGELONE': 'ANGELONE', 'MOTILALOFS': 'MOTILALOFS', 'IIFL': 'IIFL',
+        'EXIDEIND': 'EXIDEIND', 'AMARAJABAT': 'AMARAJABAT', 'HBLPOWER': 'HBLPOWER',
+        'MAPMYINDIA': 'MAPMYINDIA', 'CEINFO': 'MAPMYINDIA', 'NAZARA': 'NAZARA', 'EASEMYTRIP': 'EASEMYTRIP',
+        'RATEGAIN': 'RATEGAIN', 'TRACXN': 'TRACXN', 'ROUTE': 'ROUTE', 'LATENTVIEW': 'LATENTVIEW',
+        'HAPPSTMNDS': 'HAPPSTMNDS', 'TANLA': 'TANLA', 'SONACOMS': 'SONACOMS', 'JBMA': 'JBMA',
+        'OLECTRA': 'OLECTRA', 'JBM AUTO': 'JBMA', 'GREAVESCOT': 'GREAVESCOT',
+        'CASTROLIND': 'CASTROLIND', 'OIL': 'OIL', 'GSPL': 'GSPL', 'IGL': 'IGL',
+        'MGL': 'MGL', 'GUJGASLTD': 'GUJGASLTD', 'PETRONET': 'PETRONET', 'CHENNPETRO': 'CHENNPETRO',
+        'MRPL': 'MRPL', 'HINDPETRO': 'HINDPETRO', 'DEEPAKNTR': 'DEEPAKNTR', 'NAVINFLUOR': 'NAVINFLUOR',
+        'AARTIIND': 'AARTIIND', 'ATUL': 'ATUL', 'UPL': 'UPL',
+        'COROMANDEL': 'COROMANDEL', 'CHAMBLFERT': 'CHAMBLFERT', 'FACT': 'FACT',
+        'RCF': 'RCF', 'GNFC': 'GNFC', 'GSFC': 'GSFC', 'NFL': 'NFL',
+        'ZEEL': 'ZEEL', 'SUNTV': 'SUNTV', 'PVRINOX': 'PVRINOX', 'PVR': 'PVRINOX',
+        'INOXLEISUR': 'PVRINOX', 'NETWORK18': 'NETWORK18', 'TV18BRDCST': 'TV18BRDCST',
+        'ARE&M': 'ARE&M', 'AMARA RAJA': 'ARE&M'
     };
 
     private strategyCache: Map<string, { result: string, timestamp: number }> = new Map();
@@ -23,7 +90,8 @@ export class StrategistService {
 
     constructor(
         private configService: ConfigService,
-        private aiConfig: AIConfigService
+        private aiConfig: AIConfigService,
+        private groqService: GroqService
     ) { }
 
     // ... (rest of class)
@@ -37,77 +105,95 @@ export class StrategistService {
             return cached.result;
         }
 
-        // 2. Traffic Guard (Phase 2)
-        await this.aiConfig.waitForAvailability();
-
-        const { model, pool } = this.aiConfig.getModelWithPool({ model: 'gemini-2.0-flash', isStrategist: true });
-        if (!model) return "## ⚠️ System Busy\n\nOur AI Strategist pool is temporarily exhausted. Please try again in a few minutes.";
-
         try {
-            // ... (keep prompt construction) ...
+            // Pro Prompt: Full "Hedge Fund Analyst" Persona for Groq/Llama 3
             const prompt = `
-            Act as "StocksX Strategist", a top-tier Hedge Fund AI Analyst.
-            
-            USER QUERY: "${query}"
-            STOCK: ${symbol} (${quote.longName || symbol})
-            Current Price: ${quote.regularMarketPrice} (${quote.regularMarketChangePercent?.toFixed(2)}%)
-            
-            [TECHNICAL ANALYSIS]
-            RSI (14): ${technicals.rsi}
-            MACD: ${technicals.macd.MACD?.toFixed(2)} (Signal: ${technicals.macd.signal?.toFixed(2)}, Histogram: ${technicals.macd.histogram?.toFixed(2)})
-            EMAs: EMA20=${technicals.ema20}, EMA50=${technicals.ema50}, EMA200=${technicals.ema200}
-            Trend: Price is ${quote.regularMarketPrice > technicals.ema200 ? 'ABOVE' : 'BELOW'} 200 EMA.
-            Support/Resistance: ${JSON.stringify(technicals.pivotPoints)}
-            
-            [FUNDAMENTALS]
-            PE Ratio: ${fundamentals.pe?.toFixed(2)}
-            Market Cap: ${fundamentals.marketCap ? (fundamentals.marketCap / 10000000).toFixed(2) + ' Cr' : 'N/A'}
-            ROE: ${fundamentals.roe ? (fundamentals.roe * 100).toFixed(2) + '%' : 'N/A'}
-            Debt/Equity: ${fundamentals.debtToEquity?.toFixed(2)}
-            
-            [NEWS SENTIMENT]
-            ${news.slice(0, 3).map((n: any) => `- ${n.title}`).join('\n')}
-            
-            YOUR GOAL: Provide a "Million Dollar Strategy" for this specific situation.
-            
-            RESPONSE FORMAT (Markdown):
-            
-            ## 🎯 The Verdict: [BUY / SELL / HOLD / ACCUMULATE]
-            **Conviction**: [High/Medium/Low] | **Timeframe**: [Short/Medium/Long Term]
-            
-            ### 🔍 Strategic Rationale
-            (Explain WHY based on the data. Connect technicals with fundamentals. Be specific.)
-            
-            ### ⚡ Actionable Levels
-            - **Entry Zone**: [Price Range]
-            - **Target 1**: [Price]
-            - **Target 2**: [Price]
-            - **Stop Loss**: [Price]
-            
-            ### ⚠️ Risk Warning
-            (What could go wrong? Specific to this stock/sector)
+            ROLE: You are a world-class Hedge Fund Manager & Customer Success Obsessed Analyst at "StockX Strategist".
+            YOUR GOAL: Provide a "Million Dollar Strategy" for the user. Your tone must be professional yet enthusiastic, highly detailed, and "customer-obsessed". Treat the user like a valued partner.
+
+            TASK: Analyze ${symbol} based on the provided data and the user's query: "${query}".
+
+            DATA:
+            - Price: ${quote.regularMarketPrice} (${quote.regularMarketChangePercent?.toFixed(2)}%)
+            - 52W High/Low: ${quote.fiftyTwoWeekHigh} / ${quote.fiftyTwoWeekLow}
+            - Technicals:
+                - RSI (14): ${technicals.rsi?.toFixed(2)} (Overbought > 70, Oversold < 30)
+                - MACD: ${technicals.macd.MACD?.toFixed(2)} | Signal: ${technicals.macd.signal?.toFixed(2)} | Hist: ${technicals.macd.histogram?.toFixed(2)}
+                - EMAs: 20=${technicals.ema20?.toFixed(2)}, 50=${technicals.ema50?.toFixed(2)}, 200=${technicals.ema200?.toFixed(2)}
+                - Bollinger Bands: Upper=${technicals.bb?.upper?.toFixed(2)}, Lower=${technicals.bb?.lower?.toFixed(2)}
+                - ATR (Volatility): ${technicals.atr?.toFixed(2)}
+                - ROC (Momentum): ${technicals.roc?.toFixed(2)}
+                - Trend: ${quote.regularMarketPrice > technicals.ema200 ? 'BULLISH (Above 200EMA)' : 'BEARISH (Below 200EMA)'}
+                - Support (S1): ${technicals.pivotPoints?.s1?.toFixed(2)} | Resistance (R1): ${technicals.pivotPoints?.r1?.toFixed(2)}
+            - Fundamentals:
+                - P/E: ${fundamentals.pe?.toFixed(2)} | P/B: ${fundamentals.pb?.toFixed(2)}
+                - ROE: ${fundamentals.roe ? (fundamentals.roe * 100).toFixed(2) : 'N/A'}% | ROA: ${fundamentals.roa ? (fundamentals.roa * 100).toFixed(2) : 'N/A'}%
+                - Growth: Rev=${fundamentals.revenueGrowth ? (fundamentals.revenueGrowth * 100).toFixed(2) : 'N/A'}% | Earnings=${fundamentals.earningsGrowth ? (fundamentals.earningsGrowth * 100).toFixed(2) : 'N/A'}%
+                - Debt/Equity: ${fundamentals.debtToEquity?.toFixed(2)} | Current Ratio: ${fundamentals.currentRatio?.toFixed(2)}
+                - Target High: ${fundamentals.targetHigh}
+            - Institutional Sentiment (Brokerages):
+                - Trend: ${JSON.stringify(fundamentals.recommendationTrend || 'N/A')}
+                - Recent Actions: ${fundamentals.upgrades ? fundamentals.upgrades.map((u: any) => `${u.action} to ${u.toGrade} by ${u.firm}`).join(' | ') : 'N/A'}
+            - Recent News Headlines (Focus on Tenders/Contracts/Upgrades): ${news.slice(0, 5).map((n: any) => n.title).join(' | ')}
+
+            INSTRUCTIONS:
+            1. **Language Style**: Use **SIMPLE, DIRECT, and EASY TO UNDERSTAND English**. Avoid fancy vocabulary or complex sentence structures. Write as if you are explaining to a friend in India. Be clear and straightforward.
+            2. **Hook the User**: Start with a high-energy, impactful executive summary. If they bought at a good price, congratulate them! If they are trapped, offer a rescue plan.
+            3. **Deep Dive**: Don't just list numbers. Explain *why* the RSI or MACD matters right now. Connect the dots between the fundamental valuation (P/E) and the technical price action.
+            4. **Be Decisive**: Give a clear BUY, SELL, or HOLD verdict. No hedging.
+            5. **Structuring**: Use the exact Markdown format below.
+
+            OUTPUT FORMAT (Markdown):
+
+            ## 🚀 Million Dollar Verdict: [BUY / SELL / HOLD]
+            **Conviction**: [Low / Medium / High] | **Timeframe**: [Short-term / Medium-term / Long-term]
+
+            ### 💼 Executive Summary
+            (A 3-4 sentence high-level overview. directly addressing the user's query with enthusiasm and insight. use simple words.)
+
+            ### 🔍 Deep Technical & Fundamental Analysis
+            (Two detailed paragraphs. First, analyze the price action, trends, and indicators like RSI/MACD. Second, discuss the valuation, fundamentals, and news impact. Explain the "Story" behind the stock. Keep language simple.)
+
+            ### ⚡ Action Plan & Checkpoints
+            - **🎯 Entry Zone**: [Specific Price Range] (Explain why)
+            - **🏁 Target 1 (Conservative)**: [Price]
+            - **🚀 Target 2 (Aggressive)**: [Price] (Based on 52W High or Fib levels)
+            - **🛑 Stop Loss**: [Price] (Strict protection level)
+
+            ### ⚠️ Risk Assessment
+            (Bullet points on what could go wrong - e.g., "High P/E ratio makes it vulnerable to earnings misses" or "macroeconomic headwinds".)
+
+            ---
+            *Disclaimer: This is AI-generated analysis for educational purposes. Always do your own research.*
             `;
 
-            const result = await model.generateContent(prompt);
-            const strategistResponse = result.response.text();
+            const MIN_EXECUTION_TIME = 6000; // 6 seconds for "Deep Analysis" UX
+            const startTime = Date.now();
+
+            const strategistResponse = await this.groqService.generateCompletion(prompt);
+
+            const elapsedTime = Date.now() - startTime;
+            if (elapsedTime < MIN_EXECUTION_TIME) {
+                const delay = MIN_EXECUTION_TIME - elapsedTime;
+                this.logger.log(`UX Delay: Holding response for ${delay}ms to simulate thinking...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
 
             // Save to Cache
             this.strategyCache.set(cacheKey, { result: strategistResponse, timestamp: Date.now() });
 
             return strategistResponse;
         } catch (error: any) {
-            if (error.status === 429 || error.message?.includes('429')) {
-                const targetPool = pool === 'none' ? 'strategist' : pool;
-                this.aiConfig.handleQuotaExceeded(15, targetPool as any); // Faster recovery for strategist pool
-
+            if (error.message === 'GROQ_RATE_LIMIT') {
                 if (retryCount < 3) {
-                    const waitTime = (retryCount + 1) * 1000; // Faster retries: 1s, 2s, 3s
-                    this.logger.warn(`AI Pool rotated (${targetPool}). Retrying in ${waitTime / 1000}s (Attempt ${retryCount + 1})...`);
+                    const waitTime = (retryCount + 1) * 2000; // 2s, 4s, 6s
+                    this.logger.warn(`Groq Rate Limit. Retrying in ${waitTime / 1000}s (Attempt ${retryCount + 1})...`);
                     await new Promise(r => setTimeout(r, waitTime));
                     return this.generateStrategy(query, symbol, quote, technicals, fundamentals, news, retryCount + 1);
                 }
-                return "## ⚠️ System Busy\n\nOur AI Strategist is currently experiencing extremely high demand. Please try again after a minute.";
+                return "## ⚠️ System Busy\n\nOur AI Strategist is experiencing high demand on Groq. Please try again in 1 minute.";
             }
+            this.logger.error("Groq Strategy Generation Failed", error);
             throw error;
         }
     }
@@ -199,41 +285,30 @@ export class StrategistService {
             const mappedResult = this.checkCommonMapping(upperQuery);
             if (mappedResult) return mappedResult;
 
-            // 2. Traffic Guard (Phase 2)
-            await this.aiConfig.waitForAvailability();
+            // 2. Stronger Regex for strict usage as last resort
+            // Looks for patterns like "TATASTEEL", "TATASTEEL.NS", "INE..." (ISIN)
+            const strictRegex = /\b[A-Z]{3,15}(\.NS|\.BO)?\b/g;
+            const potentialSymbols = upperQuery.match(strictRegex) || [];
 
-            const { model, pool } = this.aiConfig.getModelWithPool({ model: 'gemini-2.0-flash', isStrategist: true });
-            if (!model) return null;
+            // Filter out common words again just in case
+            const validSymbols = potentialSymbols.filter(s => !commonWords.has(s));
 
-            const prompt = `
-            Task: Identify the NSE/BSE stock symbol from the user's query.
-            Query: "${query}"
-            
-            Rules:
-            1. Return ONLY the symbol with .NS suffix (e.g. INDUSTOWER.NS, RELIANCE.NS).
-            2. If multiple mentions, return the main one.
-            3. Common mapping: "Indus Towers" -> INDUSTOWER.NS, "M&M" -> M&M.NS.
-            4. If NO valid stock found, return "NULL".
-            
-            Output Example: RELIANCE.NS
-            Output:`;
+            if (validSymbols.length > 0) {
+                // Priority to .NS/.BO
+                const explicit = validSymbols.find(s => s.endsWith('.NS') || s.endsWith('.BO'));
+                if (explicit) return explicit;
 
-            const result = await model.generateContent(prompt);
-            const text = result.response.text().trim().replace(/['"`]/g, '').split('\n')[0].split(' ')[0];
-
-            return text === 'NULL' ? null : text;
-        } catch (error: any) {
-            if (error.status === 429 || error.message?.includes('429')) {
-                const targetPool = retryCount === 0 ? 'strategist' : 'shared'; // Simpler but pool info is better
-                this.aiConfig.handleQuotaExceeded(15, targetPool as any); // Faster recovery
-
-                if (retryCount < 2) {
-                    const waitTime = (retryCount + 1) * 1000;
-                    this.logger.warn(`AI Pool rotated (${targetPool}). Retrying symbol extraction in ${waitTime / 1000}s...`);
-                    await new Promise(r => setTimeout(r, waitTime));
-                    return this.extractSymbol(query, retryCount + 1);
-                }
+                // Otherwise take the first valid looking ticker
+                // Heuristic: If it's a known Nifty 50 or common stock, map it.
+                // If not, just append .NS and try (Better to fail at quote fetch than waste AI tokens)
+                const first = validSymbols[0];
+                const mapped = this.getCommonMapping(first);
+                return mapped || `${first}.NS`;
             }
+
+            this.logger.warn(`Could not extract symbol via Regex/Mapping. Skipping AI extraction to save quota.`);
+            return null;
+        } catch (error: any) {
             this.logger.error('Symbol extraction failed', error);
             return null;
         }
@@ -269,14 +344,22 @@ export class StrategistService {
     private async fetchFundamentals(symbol: string) {
         try {
             const yf = await this.getYahooClient();
-            const res = await yf.quoteSummary(symbol, { modules: ['summaryDetail', 'financialData', 'defaultKeyStatistics'] });
+            const res = await yf.quoteSummary(symbol, { modules: ['summaryDetail', 'financialData', 'defaultKeyStatistics', 'upgradeDowngradeHistory', 'recommendationTrend'] });
             return {
                 pe: res.summaryDetail?.trailingPE,
                 pb: res.defaultKeyStatistics?.priceToBook,
                 roe: res.financialData?.returnOnEquity,
+                roa: res.financialData?.returnOnAssets,
                 debtToEquity: res.financialData?.debtToEquity,
+                revenueGrowth: res.financialData?.revenueGrowth,
+                earningsGrowth: res.financialData?.earningsGrowth,
+                totalCash: res.financialData?.totalCash,
+                totalDebt: res.financialData?.totalDebt,
+                currentRatio: res.financialData?.currentRatio,
                 margins: res.financialData?.profitMargins,
-                targetHigh: res.financialData?.targetMeanPrice
+                targetHigh: res.financialData?.targetMeanPrice,
+                recommendationTrend: res.recommendationTrend?.trend?.[0], // Latest trend
+                upgrades: res.upgradeDowngradeHistory?.history?.slice(0, 3) // Latest 3 actions
             };
         } catch (e) { return {}; }
     }
@@ -318,6 +401,21 @@ export class StrategistService {
         const ema200 = ema200Arr[ema200Arr.length - 1];
 
 
+        // Bollinger Bands
+        const bbInput = { period: 20, values: closes, stdDev: 2 };
+        const bb = TechnicalIndicators.BollingerBands.calculate(bbInput);
+        const currentBB = bb[bb.length - 1];
+
+        // ATR (for Volatility & Stops)
+        const atrInput = { high: highs, low: lows, close: closes, period: 14 };
+        const atr = TechnicalIndicators.ATR.calculate(atrInput);
+        const currentATR = atr[atr.length - 1];
+
+        // ROC (Rate of Change - Momentum)
+        const rocInput = { values: closes, period: 12 };
+        const roc = TechnicalIndicators.ROC.calculate(rocInput);
+        const currentROC = roc[roc.length - 1];
+
         // Support/Resistance (Simple Pivot Points based on last candle)
         const last = history[history.length - 1];
         const pp = (last.high + last.low + last.close) / 3;
@@ -330,6 +428,9 @@ export class StrategistService {
             ema20,
             ema50,
             ema200,
+            bb: currentBB,
+            atr: currentATR,
+            roc: currentROC,
             support: s1,
             resistance: r1,
             trend: currentPrice > ema200 ? 'BULLISH' : 'BEARISH',

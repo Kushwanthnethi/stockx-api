@@ -5,9 +5,11 @@ import { StrategistService } from './strategist.service';
 
 import { StocksModule } from '../stocks/stocks.module';
 
+import { GroqService } from '../services/groq.service';
+
 @Module({
     imports: [ConfigModule, StocksModule],
     controllers: [StrategistController],
-    providers: [StrategistService],
+    providers: [StrategistService, GroqService],
 })
 export class StrategistModule { }

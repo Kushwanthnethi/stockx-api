@@ -33,8 +33,14 @@ export class AIConfigService {
   private initializeKeys() {
     // Shared Keys
     const rawKey = this.configService.get<string>('GEMINI_API_KEY') || '';
-    this.keys = rawKey.split(',').map((k) => k.replace(/["']/g, '').trim()).filter((k) => k.length > 0);
-    if (this.keys.length > 0) this.clients = this.keys.map((key) => new GoogleGenerativeAI(key));
+    // Fix: Handle comma separated keys properly like strategist
+    this.keys = rawKey.includes(',')
+      ? rawKey.split(',').map((k) => k.replace(/["']/g, '').trim()).filter((k) => k.length > 0)
+      : [rawKey.replace(/["']/g, '').trim()].filter(k => k.length > 0);
+
+    if (this.keys.length > 0) {
+      this.clients = this.keys.map((key) => new GoogleGenerativeAI(key));
+    }
 
     const sowKey = (this.configService.get<string>('SOW_GEMINI_API_KEY') || '').replace(/["']/g, '').trim();
     if (sowKey) this.sowClient = new GoogleGenerativeAI(sowKey);
@@ -44,7 +50,9 @@ export class AIConfigService {
     if (this.strategistKeys.length > 0) {
       this.strategistClients = this.strategistKeys.map((key) => new GoogleGenerativeAI(key));
       this.logger.log(`Strategist AI Pool Initialized with ${this.strategistKeys.length} keys.`);
+      this.strategistCooldowns.clear(); // RESET cooldowns on init
     }
+    this.keyCooldowns.clear(); // RESET shared cooldowns
     this.logger.log(`AI Config Initialized with ${this.keys.length} shared keys.`);
   }
 
@@ -111,8 +119,8 @@ export class AIConfigService {
         this.strategistKeyIndex = index;
         return { model: this.strategistClients[index].getGenerativeModel(config), pool: 'strategist' };
       }
-      this.logger.error(`CRITICAL: Strategist pool exhausted (All dedicated keys hit limit).`);
-      return { model: null as any, pool: 'none' };
+      this.logger.warn(`Strategist pool exhausted (All dedicated keys hit limit). Falling back to shared pool.`);
+      // Fallthrough to shared pool logic
     }
 
     // 3. Shared Pool
