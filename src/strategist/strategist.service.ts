@@ -99,7 +99,7 @@ export class StrategistService {
                 this.aiConfig.handleQuotaExceeded(60, targetPool as any);
 
                 if (retryCount < 3) {
-                    const waitTime = (retryCount + 1) * 2000; // 2s, 4s, 6s
+                    const waitTime = (retryCount + 1) * 1000; // Faster retries: 1s, 2s, 3s
                     this.logger.warn(`AI Pool rotated (${targetPool}). Retrying in ${waitTime / 1000}s (Attempt ${retryCount + 1})...`);
                     await new Promise(r => setTimeout(r, waitTime));
                     return this.generateStrategy(query, symbol, quote, technicals, fundamentals, news, retryCount + 1);
