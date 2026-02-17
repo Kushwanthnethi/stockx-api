@@ -161,9 +161,10 @@ export class AIConfigService {
   }
 
   get isAllExhausted(): boolean {
-    const sharedAvailable = this.getAvailableKeyIndex() !== null;
+    const sharedAvailable = this.getAvailableKeyIndex('shared') !== null;
     const sowAvailable = this.sowClient && Date.now() >= this.sowKeyCooldown;
-    return !sharedAvailable && !sowAvailable;
+    const strategistAvailable = this.strategistClients.length > 0 && this.getAvailableKeyIndex('strategist') !== null;
+    return !sharedAvailable && !sowAvailable && !strategistAvailable;
   }
 
   get activeKeyCount(): number {

@@ -31,6 +31,7 @@ export class StrategistService {
         if (!model) return "## ⚠️ System Busy\n\nOur AI Strategist pool is temporarily exhausted. Please try again in a few minutes.";
 
         try {
+            // Construction of prompt (omitted for brevity in diff but kept in file)
             const prompt = `
             Act as "StocksX Strategist", a top-tier Hedge Fund AI Analyst.
             
@@ -79,11 +80,12 @@ export class StrategistService {
         } catch (error: any) {
             if (error.status === 429 || error.message?.includes('429')) {
                 this.aiConfig.handleQuotaExceeded(60, 'strategist');
-                if (retryCount < 1) {
-                    this.logger.warn(`AI Pool rotated due to limit. Retrying strategy generation...`);
+                if (retryCount < 2) {
+                    this.logger.warn(`AI Pool rotated. Retrying strategy generation in 1s (Attempt ${retryCount + 1})...`);
+                    await new Promise(r => setTimeout(r, 1000));
                     return this.generateStrategy(query, symbol, quote, technicals, fundamentals, news, retryCount + 1);
                 }
-                return "## ⚠️ System Busy\n\nOur AI Strategist is currently experiencing high demand. Please try again in a minute.";
+                return "## ⚠️ System Busy\n\nOur AI Strategist is currently experiencing extremely high demand. Please try again after a minute.";
             }
             throw error;
         }
@@ -96,7 +98,10 @@ export class StrategistService {
         const YahooFinanceClass = pkg.default || pkg;
         if (typeof YahooFinanceClass === 'function') {
             // @ts-ignore
-            this.yf = new YahooFinanceClass({ validation: { logErrors: false } });
+            this.yf = new YahooFinanceClass({
+                validation: { logErrors: false },
+                suppressNotices: ['yahooSurvey', 'ripHistorical']
+            });
         } else {
             this.yf = YahooFinanceClass;
         }
