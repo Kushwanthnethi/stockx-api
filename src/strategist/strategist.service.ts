@@ -1,15 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-// @ts-ignore
-import * as yahooFinance from 'yahoo-finance2';
+import { AIConfigService } from '../stocks/ai-config.service';
 import * as TechnicalIndicators from 'technicalindicators';
 
 @Injectable()
 export class StrategistService {
     private readonly logger = new Logger(StrategistService.name);
-    private genAI: GoogleGenerativeAI;
-    private model: any;
     private yf: any;
 
     private static readonly COMMON_STOCKS: Record<string, string> = {
@@ -23,24 +19,18 @@ export class StrategistService {
         'BSE': 'BSE'
     };
 
-    constructor(private configService: ConfigService) {
-        const apiKey = this.configService.get<string>('STRATEGIST_GEMINI_API_KEY');
-        if (!apiKey) {
-            this.logger.error('STRATEGIST_GEMINI_API_KEY is not set in environment variables!');
-        } else {
-            this.genAI = new GoogleGenerativeAI(apiKey);
-            this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-        }
-    }
+    constructor(
+        private configService: ConfigService,
+        private aiConfig: AIConfigService
+    ) { }
 
     // ... (rest of class)
 
-    private async generateStrategy(query: string, symbol: string, quote: any, technicals: any, fundamentals: any, news: any[]) {
-        if (!this.model) return "AI Model not configured.";
+    private async generateStrategy(query: string, symbol: string, quote: any, technicals: any, fundamentals: any, news: any[], retryCount = 0): Promise<string> {
+        const model = this.aiConfig.getModel({ model: 'gemini-2.0-flash', isStrategist: true });
+        if (!model) return "## ⚠️ System Busy\n\nOur AI Strategist pool is temporarily exhausted. Please try again in a few minutes.";
 
         try {
-            // ... (keep existing prompt construction) ...
-
             const prompt = `
             Act as "StocksX Strategist", a top-tier Hedge Fund AI Analyst.
             
@@ -56,9 +46,9 @@ export class StrategistService {
             Support/Resistance: ${JSON.stringify(technicals.pivotPoints)}
             
             [FUNDAMENTALS]
-            PE Ratio: ${fundamentals.trailingPE?.toFixed(2)}
-            Market Cap: ${(fundamentals.marketCap / 10000000).toFixed(2)} Cr
-            ROE: ${(fundamentals.returnOnEquity * 100).toFixed(2)}%
+            PE Ratio: ${fundamentals.pe?.toFixed(2)}
+            Market Cap: ${fundamentals.marketCap ? (fundamentals.marketCap / 10000000).toFixed(2) + ' Cr' : 'N/A'}
+            ROE: ${fundamentals.roe ? (fundamentals.roe * 100).toFixed(2) + '%' : 'N/A'}
             Debt/Equity: ${fundamentals.debtToEquity?.toFixed(2)}
             
             [NEWS SENTIMENT]
@@ -84,11 +74,15 @@ export class StrategistService {
             (What could go wrong? Specific to this stock/sector)
             `;
 
-            const result = await this.model.generateContent(prompt);
+            const result = await model.generateContent(prompt);
             return result.response.text();
         } catch (error: any) {
             if (error.status === 429 || error.message?.includes('429')) {
-                this.logger.warn('AI Rate Limit Exceeded');
+                this.aiConfig.handleQuotaExceeded(60, 'strategist');
+                if (retryCount < 1) {
+                    this.logger.warn(`AI Pool rotated due to limit. Retrying strategy generation...`);
+                    return this.generateStrategy(query, symbol, quote, technicals, fundamentals, news, retryCount + 1);
+                }
                 return "## ⚠️ System Busy\n\nOur AI Strategist is currently experiencing high demand. Please try again in a minute.";
             }
             throw error;
@@ -159,33 +153,29 @@ export class StrategistService {
         };
     }
 
-    private async extractSymbol(query: string): Promise<string | null> {
+    private async extractSymbol(query: string, retryCount = 0): Promise<string | null> {
         try {
             const upperQuery = query.toUpperCase();
             const commonWords = new Set(['BOUGHT', 'SHARES', 'SHARE', 'PRICE', 'TARGET', 'ACTION', 'VERDICT', 'MOVE', 'NEXT', 'SELL', 'BUY', 'HOLD', 'ENTRY', 'STOP', 'LOSS', 'ZONE']);
 
-            // 1. Direct Regex Match
             const symbolRegex = /\b[A-Z0-9-]{3,15}(\.(NS|BO))?\b/g;
             const matches = upperQuery.match(symbolRegex) || [];
 
-            // Priority 1: Has .NS or .BO suffix (High confidence)
             const explicitMatch = matches.find(m => m.includes('.NS') || m.includes('.BO'));
             if (explicitMatch) return explicitMatch;
 
-            // Priority 2: Filter out common words and pick the most likely candidate
             const candidates = matches.filter(m => !commonWords.has(m) && !/^\d+$/.test(m));
             if (candidates.length === 1) {
-                // If it's a known symbol in our common map, use that mapping
                 const mapped = this.getCommonMapping(candidates[0]);
                 return mapped || candidates[0];
             }
 
-            // Common mapping for popular stocks that might be missed
             const mappedResult = this.checkCommonMapping(upperQuery);
             if (mappedResult) return mappedResult;
 
-            // 2. AI Extraction for complex or unmapped names
-            if (!this.model) return null;
+            // 2. AI Extraction
+            const model = this.aiConfig.getModel({ model: 'gemini-2.0-flash', isStrategist: true });
+            if (!model) return null;
 
             const prompt = `
             Task: Identify the NSE/BSE stock symbol from the user's query.
@@ -200,12 +190,19 @@ export class StrategistService {
             Output Example: RELIANCE.NS
             Output:`;
 
-            const result = await this.model.generateContent(prompt);
-            const text = result.response.text().trim().replace(/['"`]/g, '').split('\n')[0].split(' ')[0]; // Clean output
+            const result = await model.generateContent(prompt);
+            const text = result.response.text().trim().replace(/['"`]/g, '').split('\n')[0].split(' ')[0];
 
             return text === 'NULL' ? null : text;
-        } catch (e) {
-            this.logger.error('Symbol extraction failed', e);
+        } catch (error: any) {
+            if (error.status === 429 || error.message?.includes('429')) {
+                this.aiConfig.handleQuotaExceeded(60, 'strategist');
+                if (retryCount < 1) {
+                    this.logger.warn(`AI Pool rotated. Retrying symbol extraction...`);
+                    return this.extractSymbol(query, retryCount + 1);
+                }
+            }
+            this.logger.error('Symbol extraction failed', error);
             return null;
         }
     }

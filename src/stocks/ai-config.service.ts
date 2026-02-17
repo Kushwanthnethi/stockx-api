@@ -13,8 +13,14 @@ export class AIConfigService {
   private clients: GoogleGenerativeAI[] = [];
   private currentKeyIndex = 0;
   private keyCooldowns: Map<number, number> = new Map(); // index -> reset timestamp
+
   private sowClient: GoogleGenerativeAI | null = null;
   private sowKeyCooldown: number = 0;
+
+  private strategistKeys: string[] = [];
+  private strategistClients: GoogleGenerativeAI[] = [];
+  private strategistKeyIndex = 0;
+  private strategistCooldowns: Map<number, number> = new Map();
 
   constructor(private configService: ConfigService) { }
 
@@ -23,38 +29,52 @@ export class AIConfigService {
   }
 
   private initializeKeys() {
+    // Shared Keys
     const rawKey = this.configService.get<string>('GEMINI_API_KEY') || '';
     this.keys = rawKey
       .split(',')
       .map((k) => k.replace(/["']/g, '').trim())
       .filter((k) => k.length > 0);
 
-    if (this.keys.length === 0) {
-      this.logger.warn('No GEMINI_API_KEY found in environment.');
-      return;
+    if (this.keys.length > 0) {
+      this.clients = this.keys.map((key) => new GoogleGenerativeAI(key));
     }
 
-    this.clients = this.keys.map((key) => new GoogleGenerativeAI(key));
-    this.logger.log(`AI Config Initialized with ${this.keys.length} API keys.`);
-
+    // SOW Key
     const sowKey = (this.configService.get<string>('SOW_GEMINI_API_KEY') || '').replace(/["']/g, '').trim();
     if (sowKey) {
       this.sowClient = new GoogleGenerativeAI(sowKey);
-      this.logger.log('Dedicated Stock of the Week API key initialized.');
     }
+
+    // Strategist Keys
+    const stratKey = (this.configService.get<string>('STRATEGIST_GEMINI_API_KEY') || '').replace(/["']/g, '').trim();
+    this.strategistKeys = stratKey
+      .split(',')
+      .map((k) => k.replace(/["']/g, '').trim())
+      .filter((k) => k.length > 0);
+
+    if (this.strategistKeys.length > 0) {
+      this.strategistClients = this.strategistKeys.map((key) => new GoogleGenerativeAI(key));
+      this.logger.log(`Strategist AI Pool Initialized with ${this.strategistKeys.length} keys.`);
+    }
+
+    this.logger.log(`AI Config Initialized with ${this.keys.length} shared keys.`);
   }
 
-  private getAvailableKeyIndex(): number | null {
+  private getAvailableKeyIndex(pool: 'shared' | 'strategist' = 'shared'): number | null {
     const now = Date.now();
-    // Try starting from currentKeyIndex
-    for (let i = 0; i < this.keys.length; i++) {
-      const index = (this.currentKeyIndex + i) % this.keys.length;
-      const cooldown = this.keyCooldowns.get(index);
+    const keys = pool === 'shared' ? this.keys : this.strategistKeys;
+    const cooldowns = pool === 'shared' ? this.keyCooldowns : this.strategistCooldowns;
+    const currentIndex = pool === 'shared' ? this.currentKeyIndex : this.strategistKeyIndex;
+
+    for (let i = 0; i < keys.length; i++) {
+      const index = (currentIndex + i) % keys.length;
+      const cooldown = cooldowns.get(index);
 
       if (!cooldown || now >= cooldown) {
         if (cooldown) {
-          this.logger.log(`Key ${index} has recovered from cooldown.`);
-          this.keyCooldowns.delete(index);
+          this.logger.log(`${pool.toUpperCase()} Key ${index} recovered from cooldown.`);
+          cooldowns.delete(index);
         }
         return index;
       }
@@ -66,21 +86,35 @@ export class AIConfigService {
     model: string;
     generationConfig?: GenerationConfig;
     isSOW?: boolean;
+    isStrategist?: boolean;
   }): GenerativeModel | null {
+    const now = Date.now();
+
+    // 1. Dedicated SOW
     if (config.isSOW && this.sowClient) {
-      const now = Date.now();
       if (now >= this.sowKeyCooldown) {
         return this.sowClient.getGenerativeModel(config);
       }
-      this.logger.warn(`Dedicated SOW key is in cooldown until ${new Date(this.sowKeyCooldown).toLocaleTimeString()}, falling back to shared keys.`);
+      this.logger.warn(`SOW key in cooldown, falling back to shared keys.`);
     }
 
+    // 2. Dedicated Strategist Pool
+    if (config.isStrategist && this.strategistClients.length > 0) {
+      const index = this.getAvailableKeyIndex('strategist');
+      if (index !== null) {
+        this.strategistKeyIndex = index;
+        return this.strategistClients[index].getGenerativeModel(config);
+      }
+      this.logger.warn(`Strategist pool exhausted, falling back to shared keys.`);
+    }
+
+    // 3. Shared Pool
     if (this.clients.length === 0) {
       this.logger.warn('No shared AI clients available.');
       return null;
     }
 
-    const index = this.getAvailableKeyIndex();
+    const index = this.getAvailableKeyIndex('shared');
     if (index !== null) {
       this.currentKeyIndex = index;
       return this.clients[index].getGenerativeModel(config);
@@ -91,19 +125,17 @@ export class AIConfigService {
 
   private globalCooldown: number = 0; // timestamp
 
-  handleServiceOverload(delaySeconds: number = 60, isSOW: boolean = false) {
-    const now = Date.now();
-    const resetAt = now + delaySeconds * 1000;
-    if (isSOW) {
+  handleServiceOverload(delaySeconds: number = 60, mode: 'shared' | 'sow' | 'strategist' = 'shared') {
+    const resetAt = Date.now() + delaySeconds * 1000;
+    if (mode === 'sow') {
       this.sowKeyCooldown = resetAt;
-      this.logger.error(
-        `DEDICATED SOW OVERLOAD: Pausing SOW key until ${new Date(resetAt).toLocaleTimeString()}.`,
-      );
+      this.logger.error(`SOW OVERLOAD: Pause until ${new Date(resetAt).toLocaleTimeString()}.`);
+    } else if (mode === 'strategist') {
+      this.globalCooldown = resetAt; // For now use global for strategist too or could be separate
+      this.logger.error(`STRATEGIST OVERLOAD: Pause until ${new Date(resetAt).toLocaleTimeString()}.`);
     } else {
       this.globalCooldown = resetAt;
-      this.logger.error(
-        `GLOBAL AI OVERLOAD: Service unavailable. Pausing all calls until ${new Date(this.globalCooldown).toLocaleTimeString()}.`,
-      );
+      this.logger.error(`GLOBAL OVERLOAD: Pause until ${new Date(resetAt).toLocaleTimeString()}.`);
     }
   }
 
@@ -111,30 +143,24 @@ export class AIConfigService {
     return Date.now() < this.globalCooldown;
   }
 
-  handleQuotaExceeded(delaySeconds: number = 60, isSOW: boolean = false) {
-    const now = Date.now();
-    // Key is dead for at least delaySeconds (default to 1 min for RPM)
-    const resetAt = now + delaySeconds * 1000;
+  handleQuotaExceeded(delaySeconds: number = 60, mode: 'shared' | 'sow' | 'strategist' = 'shared') {
+    const resetAt = Date.now() + delaySeconds * 1000;
 
-    if (isSOW) {
+    if (mode === 'sow') {
       this.sowKeyCooldown = resetAt;
-      this.logger.error(
-        `Dedicated SOW API Key restricted until ${new Date(resetAt).toLocaleTimeString()}. Fallback to shared keys enabled.`,
-      );
+      this.logger.error(`SOW Quota Exceeded. Pause until ${new Date(resetAt).toLocaleTimeString()}.`);
+    } else if (mode === 'strategist' && this.strategistKeys.length > 0) {
+      this.strategistCooldowns.set(this.strategistKeyIndex, resetAt);
+      this.logger.error(`Strategist Key ${this.strategistKeyIndex} Restricted until ${new Date(resetAt).toLocaleTimeString()}.`);
+      this.strategistKeyIndex = (this.strategistKeyIndex + 1) % this.strategistKeys.length;
     } else {
       this.keyCooldowns.set(this.currentKeyIndex, resetAt);
-
-      this.logger.error(
-        `API Key ${this.currentKeyIndex} (${this.keys[this.currentKeyIndex].substring(0, 8)}...) restricted until ${new Date(resetAt).toLocaleTimeString()}.`,
-      );
-
-      // Move to next internal index to try someone else next time
+      this.logger.error(`Shared Key ${this.currentKeyIndex} Restricted until ${new Date(resetAt).toLocaleTimeString()}.`);
       this.currentKeyIndex = (this.currentKeyIndex + 1) % this.keys.length;
     }
   }
 
   get isAllExhausted(): boolean {
-    if (this.keys.length === 0 && !this.sowClient) return true;
     const sharedAvailable = this.getAvailableKeyIndex() !== null;
     const sowAvailable = this.sowClient && Date.now() >= this.sowKeyCooldown;
     return !sharedAvailable && !sowAvailable;
