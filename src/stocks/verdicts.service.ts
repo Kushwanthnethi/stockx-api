@@ -306,6 +306,9 @@ export class VerdictsService implements OnModuleInit {
             }
             `;
 
+      // 2. Traffic Guard (Phase 2)
+      await this.aiConfig.waitForAvailability();
+
       const model = this.aiConfig.getModel({
         model: 'gemini-2.0-flash',
       });

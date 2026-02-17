@@ -74,6 +74,20 @@ export class AIConfigService {
     return null;
   }
 
+  private lastRequestTime = 0;
+  private readonly REQUEST_GAP = 2000; // 2 seconds between ANY AI call
+
+  async waitForAvailability(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLast = now - this.lastRequestTime;
+    if (timeSinceLast < this.REQUEST_GAP) {
+      const waitTime = this.REQUEST_GAP - timeSinceLast;
+      this.logger.log(`Traffic Guard: Spacing request. Waiting ${waitTime}ms...`);
+      await this.delay(waitTime);
+    }
+    this.lastRequestTime = Date.now();
+  }
+
   getModelWithPool(config: {
     model: string;
     generationConfig?: GenerationConfig;

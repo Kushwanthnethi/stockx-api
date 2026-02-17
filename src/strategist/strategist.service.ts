@@ -37,6 +37,9 @@ export class StrategistService {
             return cached.result;
         }
 
+        // 2. Traffic Guard (Phase 2)
+        await this.aiConfig.waitForAvailability();
+
         const { model, pool } = this.aiConfig.getModelWithPool({ model: 'gemini-2.0-flash', isStrategist: true });
         if (!model) return "## ⚠️ System Busy\n\nOur AI Strategist pool is temporarily exhausted. Please try again in a few minutes.";
 
@@ -196,7 +199,9 @@ export class StrategistService {
             const mappedResult = this.checkCommonMapping(upperQuery);
             if (mappedResult) return mappedResult;
 
-            // 2. AI Extraction
+            // 2. Traffic Guard (Phase 2)
+            await this.aiConfig.waitForAvailability();
+
             const { model, pool } = this.aiConfig.getModelWithPool({ model: 'gemini-2.0-flash', isStrategist: true });
             if (!model) return null;
 

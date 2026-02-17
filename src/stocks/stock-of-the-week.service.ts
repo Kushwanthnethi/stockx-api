@@ -279,6 +279,9 @@ export class StockOfTheWeekService implements OnModuleInit {
         `;
 
     try {
+      // 2. Traffic Guard (Phase 2)
+      await this.aiConfig.waitForAvailability();
+
       const model = this.aiConfig.getModel({
         model: 'models/gemini-flash-latest',
         isSOW: true,
