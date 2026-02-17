@@ -18,7 +18,7 @@ export class StrategistService {
             this.logger.error('STRATEGIST_GEMINI_API_KEY is not set in environment variables!');
         } else {
             this.genAI = new GoogleGenerativeAI(apiKey);
-            this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+            this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
         }
     }
 
@@ -152,9 +152,15 @@ export class StrategistService {
         try {
             const upperQuery = query.toUpperCase();
 
-            // 1. Direct Regex Match for existing symbols (e.g. RELIANCE.NS, COALINDIA)
+            // 1. Direct Regex Match for existing symbols (priority)
             const symbolRegex = /\b[A-Z0-9-]{3,15}(\.(NS|BO))?\b/g;
             const matches = upperQuery.match(symbolRegex);
+
+            if (matches && matches.length > 0) {
+                // Return the first match, ensuring it has .NS if it's likely an NSE stock 
+                // but for now we trust the exact match if provided
+                return matches[0];
+            }
 
             // Common mapping for popular stocks that might be missed
             const commonStocks: Record<string, string> = {
@@ -184,10 +190,11 @@ export class StrategistService {
             3. Common mapping: "Indus Towers" -> INDUSTOWER.NS, "M&M" -> M&M.NS.
             4. If NO valid stock found, return "NULL".
             
+            Output Example: RELIANCE.NS
             Output:`;
 
             const result = await this.model.generateContent(prompt);
-            const text = result.response.text().trim().replace(/['"`]/g, '').split(' ')[0]; // Clean output
+            const text = result.response.text().trim().replace(/['"`]/g, '').split('\n')[0].split(' ')[0]; // Clean output
 
             return text === 'NULL' ? null : text;
         } catch (e) {
