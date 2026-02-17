@@ -143,19 +143,23 @@ export class AIConfigService {
 
   handleQuotaExceeded(delaySeconds: number = 60, mode: 'shared' | 'sow' | 'strategist' = 'shared') {
     const resetAt = Date.now() + delaySeconds * 1000;
-    const safetyAt = Date.now() + 5000; // 5s pool-level breather
-    this.poolSafetyCooldowns.set(mode, safetyAt);
+
+    // Safety breather: Shared pool gets a short pause to prevent flood.
+    // Strategist (Paid) should allow instant failover.
+    if (mode === 'shared') {
+      this.poolSafetyCooldowns.set(mode, Date.now() + 2000);
+    }
 
     if (mode === 'sow') {
       this.sowKeyCooldown = resetAt;
-      this.logger.error(`SOW Quota Exceeded. Pool paused for 5s. Key reset until ${new Date(resetAt).toLocaleTimeString()}.`);
+      this.logger.error(`SOW Quota Exceeded. Key reset until ${new Date(resetAt).toLocaleTimeString()}.`);
     } else if (mode === 'strategist' && this.strategistKeys.length > 0) {
       this.strategistCooldowns.set(this.strategistKeyIndex, resetAt);
-      this.logger.error(`Strategist Key ${this.strategistKeyIndex} Restricted (Pool paused for 5s) until ${new Date(resetAt).toLocaleTimeString()}.`);
+      this.logger.error(`Strategist Key ${this.strategistKeyIndex} Restricted until ${new Date(resetAt).toLocaleTimeString()}.`);
       this.strategistKeyIndex = (this.strategistKeyIndex + 1) % this.strategistKeys.length;
     } else {
       this.keyCooldowns.set(this.currentKeyIndex, resetAt);
-      this.logger.error(`Shared Key ${this.currentKeyIndex} Restricted (Pool paused for 5s) until ${new Date(resetAt).toLocaleTimeString()}.`);
+      this.logger.error(`Shared Key ${this.currentKeyIndex} Restricted until ${new Date(resetAt).toLocaleTimeString()}.`);
       this.currentKeyIndex = (this.currentKeyIndex + 1) % this.keys.length;
     }
   }
