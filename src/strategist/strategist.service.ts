@@ -200,19 +200,27 @@ export class StrategistService {
 
     private async getYahooClient() {
         if (this.yf) return this.yf;
-        // @ts-ignore
-        const pkg = await import('yahoo-finance2');
-        const YahooFinanceClass = pkg.default || pkg;
-        if (typeof YahooFinanceClass === 'function') {
+        try {
             // @ts-ignore
-            this.yf = new YahooFinanceClass({
-                validation: { logErrors: false },
-                suppressNotices: ['yahooSurvey', 'ripHistorical']
-            });
-        } else {
-            this.yf = YahooFinanceClass;
+            const pkg = await import('yahoo-finance2');
+            const YahooFinanceClass = pkg.default || pkg;
+
+            if (typeof YahooFinanceClass === 'function') {
+                // @ts-ignore
+                this.yf = new YahooFinanceClass({
+                    validation: { logErrors: false },
+                    suppressNotices: ['yahooSurvey', 'ripHistorical']
+                });
+            } else if (YahooFinanceClass && typeof (YahooFinanceClass as any).quote === 'function') {
+                this.yf = YahooFinanceClass;
+            } else {
+                throw new Error('Yahoo Finance exports not recognized');
+            }
+            return this.yf;
+        } catch (error) {
+            this.logger.error('Failed to initialize Yahoo Finance client', error);
+            throw error;
         }
-        return this.yf;
     }
 
 
@@ -299,14 +307,20 @@ export class StrategistService {
                 if (explicit) return explicit;
 
                 // Otherwise take the first valid looking ticker
-                // Heuristic: If it's a known Nifty 50 or common stock, map it.
-                // If not, just append .NS and try (Better to fail at quote fetch than waste AI tokens)
                 const first = validSymbols[0];
                 const mapped = this.getCommonMapping(first);
-                return mapped || `${first}.NS`;
+                if (mapped) return mapped;
             }
 
-            this.logger.warn(`Could not extract symbol via Regex/Mapping. Skipping AI extraction to save quota.`);
+            // AI Fallback
+            this.logger.log(`Regex/Mapping extraction failed for query: "${query}". Attempting AI extraction fallback...`);
+            const aiSymbol = await this.extractSymbolWithAI(query);
+            if (aiSymbol) {
+                this.logger.log(`AI extracted symbol: ${aiSymbol}`);
+                return aiSymbol;
+            }
+
+            this.logger.warn(`Could not extract symbol via Regex, Mapping, or AI.`);
             return null;
         } catch (error: any) {
             this.logger.error('Symbol extraction failed', error);
@@ -314,12 +328,79 @@ export class StrategistService {
         }
     }
 
+    private async extractSymbolWithAI(query: string): Promise<string | null> {
+        try {
+            const prompt = `
+            Task: Extract the stock ticker symbol from the following user query for the Indian stock market (NSE/BSE).
+            Query: "${query}"
+            
+            Rules:
+            1. Return ONLY the ticker symbol followed by .NS (for NSE) or .BO (for BSE).
+            2. If you are unsure but know the company name, return the most likely symbol (e.g., "Reliance" -> "RELIANCE.NS").
+            3. If no stock ticker can be identified, return "NONE".
+            4. Do not include any explanation or extra text.
+            
+            Example:
+            Query: "Check price for State Bank"
+            Result: SBIN.NS
+            
+            Example:
+            Query: "Analyze Tata Motors"
+            Result: TATAMOTORS.NS
+            `;
+
+            const result = await this.groqService.generateCompletion(prompt);
+            const trimmed = result.trim().toUpperCase();
+
+            if (trimmed === 'NONE' || trimmed.includes(' ')) return null;
+
+            // Validate format (very basic)
+            if (trimmed.length >= 3 && (trimmed.includes('.NS') || trimmed.includes('.BO'))) {
+                return trimmed;
+            }
+
+            // If it returned a symbol without exchange, assume .NS
+            if (trimmed.length >= 2 && trimmed.length <= 15 && !trimmed.includes('.')) {
+                return `${trimmed}.NS`;
+            }
+
+            return null;
+        } catch (error) {
+            this.logger.error('AI Symbol Extraction failed', error);
+            return null;
+        }
+    }
+
     private async fetchQuote(symbol: string) {
         try {
             const yf = await this.getYahooClient();
-            return await yf.quote(symbol);
-        } catch (e) {
-            this.logger.error(`Quote fetch failed for ${symbol}`, e);
+            let quote = await yf.quote(symbol);
+
+            if (!quote || !quote.regularMarketPrice) {
+                // Fallback: If it was .NS, try .BO or vice-versa
+                const alternative = symbol.endsWith('.NS')
+                    ? symbol.replace('.NS', '.BO')
+                    : symbol.endsWith('.BO')
+                        ? symbol.replace('.BO', '.NS')
+                        : null;
+
+                if (alternative) {
+                    this.logger.log(`Fetch failed for ${symbol}, trying alternative: ${alternative}`);
+                    quote = await yf.quote(alternative);
+                }
+            }
+
+            return quote;
+        } catch (e: any) {
+            this.logger.error(`Quote fetch failed for ${symbol}: ${e.message}`, e.stack);
+
+            // Final desperate attempt at alternative if error thrown
+            try {
+                const yf = await this.getYahooClient();
+                const alternative = symbol.endsWith('.NS') ? symbol.replace('.NS', '.BO') : null;
+                if (alternative) return await yf.quote(alternative);
+            } catch { }
+
             return null;
         }
     }
