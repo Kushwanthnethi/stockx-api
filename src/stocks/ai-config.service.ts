@@ -22,6 +22,8 @@ export class AIConfigService {
   private strategistKeyIndex = 0;
   private strategistCooldowns: Map<number, number> = new Map();
 
+  private poolSafetyCooldowns: Map<string, number> = new Map(); // poolName -> resetAt
+
   constructor(private configService: ConfigService) { }
 
   onModuleInit() {
@@ -31,41 +33,31 @@ export class AIConfigService {
   private initializeKeys() {
     // Shared Keys
     const rawKey = this.configService.get<string>('GEMINI_API_KEY') || '';
-    this.keys = rawKey
-      .split(',')
-      .map((k) => k.replace(/["']/g, '').trim())
-      .filter((k) => k.length > 0);
+    this.keys = rawKey.split(',').map((k) => k.replace(/["']/g, '').trim()).filter((k) => k.length > 0);
+    if (this.keys.length > 0) this.clients = this.keys.map((key) => new GoogleGenerativeAI(key));
 
-    if (this.keys.length > 0) {
-      this.clients = this.keys.map((key) => new GoogleGenerativeAI(key));
-    }
-
-    // SOW Key
     const sowKey = (this.configService.get<string>('SOW_GEMINI_API_KEY') || '').replace(/["']/g, '').trim();
-    if (sowKey) {
-      this.sowClient = new GoogleGenerativeAI(sowKey);
-    }
+    if (sowKey) this.sowClient = new GoogleGenerativeAI(sowKey);
 
-    // Strategist Keys
     const stratKey = (this.configService.get<string>('STRATEGIST_GEMINI_API_KEY') || '').replace(/["']/g, '').trim();
-    this.strategistKeys = stratKey
-      .split(',')
-      .map((k) => k.replace(/["']/g, '').trim())
-      .filter((k) => k.length > 0);
-
+    this.strategistKeys = stratKey.split(',').map((k) => k.replace(/["']/g, '').trim()).filter((k) => k.length > 0);
     if (this.strategistKeys.length > 0) {
       this.strategistClients = this.strategistKeys.map((key) => new GoogleGenerativeAI(key));
       this.logger.log(`Strategist AI Pool Initialized with ${this.strategistKeys.length} keys.`);
     }
-
     this.logger.log(`AI Config Initialized with ${this.keys.length} shared keys.`);
   }
 
   private getAvailableKeyIndex(pool: 'shared' | 'strategist' = 'shared'): number | null {
     const now = Date.now();
+    const safety = this.poolSafetyCooldowns.get(pool) || 0;
+    if (now < safety) return null; // Whole pool is taking a breather
+
     const keys = pool === 'shared' ? this.keys : this.strategistKeys;
     const cooldowns = pool === 'shared' ? this.keyCooldowns : this.strategistCooldowns;
     const currentIndex = pool === 'shared' ? this.currentKeyIndex : this.strategistKeyIndex;
+
+    if (keys.length === 0) return null;
 
     for (let i = 0; i < keys.length; i++) {
       const index = (currentIndex + i) % keys.length;
@@ -82,18 +74,18 @@ export class AIConfigService {
     return null;
   }
 
-  getModel(config: {
+  getModelWithPool(config: {
     model: string;
     generationConfig?: GenerationConfig;
     isSOW?: boolean;
     isStrategist?: boolean;
-  }): GenerativeModel | null {
+  }): { model: GenerativeModel; pool: 'shared' | 'sow' | 'strategist' | 'none' } {
     const now = Date.now();
 
     // 1. Dedicated SOW
     if (config.isSOW && this.sowClient) {
       if (now >= this.sowKeyCooldown) {
-        return this.sowClient.getGenerativeModel(config);
+        return { model: this.sowClient.getGenerativeModel(config), pool: 'sow' };
       }
       this.logger.warn(`SOW key in cooldown, falling back to shared keys.`);
     }
@@ -103,7 +95,7 @@ export class AIConfigService {
       const index = this.getAvailableKeyIndex('strategist');
       if (index !== null) {
         this.strategistKeyIndex = index;
-        return this.strategistClients[index].getGenerativeModel(config);
+        return { model: this.strategistClients[index].getGenerativeModel(config), pool: 'strategist' };
       }
       this.logger.warn(`Strategist pool exhausted, falling back to shared keys.`);
     }
@@ -111,16 +103,22 @@ export class AIConfigService {
     // 3. Shared Pool
     if (this.clients.length === 0) {
       this.logger.warn('No shared AI clients available.');
-      return null;
+      return { model: null as any, pool: 'none' };
     }
 
     const index = this.getAvailableKeyIndex('shared');
     if (index !== null) {
       this.currentKeyIndex = index;
-      return this.clients[index].getGenerativeModel(config);
+      return { model: this.clients[index].getGenerativeModel(config), pool: 'shared' };
     }
 
-    return null;
+    return { model: null as any, pool: 'none' };
+  }
+
+  // Legacy wrapper
+  getModel(config: any): GenerativeModel | null {
+    const res = this.getModelWithPool(config);
+    return res.model;
   }
 
   private globalCooldown: number = 0; // timestamp
@@ -145,17 +143,19 @@ export class AIConfigService {
 
   handleQuotaExceeded(delaySeconds: number = 60, mode: 'shared' | 'sow' | 'strategist' = 'shared') {
     const resetAt = Date.now() + delaySeconds * 1000;
+    const safetyAt = Date.now() + 5000; // 5s pool-level breather
+    this.poolSafetyCooldowns.set(mode, safetyAt);
 
     if (mode === 'sow') {
       this.sowKeyCooldown = resetAt;
-      this.logger.error(`SOW Quota Exceeded. Pause until ${new Date(resetAt).toLocaleTimeString()}.`);
+      this.logger.error(`SOW Quota Exceeded. Pool paused for 5s. Key reset until ${new Date(resetAt).toLocaleTimeString()}.`);
     } else if (mode === 'strategist' && this.strategistKeys.length > 0) {
       this.strategistCooldowns.set(this.strategistKeyIndex, resetAt);
-      this.logger.error(`Strategist Key ${this.strategistKeyIndex} Restricted until ${new Date(resetAt).toLocaleTimeString()}.`);
+      this.logger.error(`Strategist Key ${this.strategistKeyIndex} Restricted (Pool paused for 5s) until ${new Date(resetAt).toLocaleTimeString()}.`);
       this.strategistKeyIndex = (this.strategistKeyIndex + 1) % this.strategistKeys.length;
     } else {
       this.keyCooldowns.set(this.currentKeyIndex, resetAt);
-      this.logger.error(`Shared Key ${this.currentKeyIndex} Restricted until ${new Date(resetAt).toLocaleTimeString()}.`);
+      this.logger.error(`Shared Key ${this.currentKeyIndex} Restricted (Pool paused for 5s) until ${new Date(resetAt).toLocaleTimeString()}.`);
       this.currentKeyIndex = (this.currentKeyIndex + 1) % this.keys.length;
     }
   }

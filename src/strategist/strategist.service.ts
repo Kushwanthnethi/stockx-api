@@ -27,11 +27,11 @@ export class StrategistService {
     // ... (rest of class)
 
     private async generateStrategy(query: string, symbol: string, quote: any, technicals: any, fundamentals: any, news: any[], retryCount = 0): Promise<string> {
-        const model = this.aiConfig.getModel({ model: 'gemini-2.0-flash', isStrategist: true });
+        const { model, pool } = this.aiConfig.getModelWithPool({ model: 'gemini-2.0-flash', isStrategist: true });
         if (!model) return "## ⚠️ System Busy\n\nOur AI Strategist pool is temporarily exhausted. Please try again in a few minutes.";
 
         try {
-            // Construction of prompt (omitted for brevity in diff but kept in file)
+            // ... (keep prompt construction) ...
             const prompt = `
             Act as "StocksX Strategist", a top-tier Hedge Fund AI Analyst.
             
@@ -79,10 +79,13 @@ export class StrategistService {
             return result.response.text();
         } catch (error: any) {
             if (error.status === 429 || error.message?.includes('429')) {
-                this.aiConfig.handleQuotaExceeded(60, 'strategist');
-                if (retryCount < 2) {
-                    this.logger.warn(`AI Pool rotated. Retrying strategy generation in 1s (Attempt ${retryCount + 1})...`);
-                    await new Promise(r => setTimeout(r, 1000));
+                const targetPool = pool === 'none' ? 'strategist' : pool;
+                this.aiConfig.handleQuotaExceeded(60, targetPool as any);
+
+                if (retryCount < 3) {
+                    const waitTime = (retryCount + 1) * 2000; // 2s, 4s, 6s
+                    this.logger.warn(`AI Pool rotated (${targetPool}). Retrying in ${waitTime / 1000}s (Attempt ${retryCount + 1})...`);
+                    await new Promise(r => setTimeout(r, waitTime));
                     return this.generateStrategy(query, symbol, quote, technicals, fundamentals, news, retryCount + 1);
                 }
                 return "## ⚠️ System Busy\n\nOur AI Strategist is currently experiencing extremely high demand. Please try again after a minute.";
@@ -179,7 +182,7 @@ export class StrategistService {
             if (mappedResult) return mappedResult;
 
             // 2. AI Extraction
-            const model = this.aiConfig.getModel({ model: 'gemini-2.0-flash', isStrategist: true });
+            const { model, pool } = this.aiConfig.getModelWithPool({ model: 'gemini-2.0-flash', isStrategist: true });
             if (!model) return null;
 
             const prompt = `
@@ -201,9 +204,13 @@ export class StrategistService {
             return text === 'NULL' ? null : text;
         } catch (error: any) {
             if (error.status === 429 || error.message?.includes('429')) {
-                this.aiConfig.handleQuotaExceeded(60, 'strategist');
-                if (retryCount < 1) {
-                    this.logger.warn(`AI Pool rotated. Retrying symbol extraction...`);
+                const targetPool = retryCount === 0 ? 'strategist' : 'shared'; // Simpler but pool info is better
+                this.aiConfig.handleQuotaExceeded(60, targetPool as any);
+
+                if (retryCount < 2) {
+                    const waitTime = (retryCount + 1) * 2000;
+                    this.logger.warn(`AI Pool rotated (${targetPool}). Retrying symbol extraction in ${waitTime / 1000}s...`);
+                    await new Promise(r => setTimeout(r, waitTime));
                     return this.extractSymbol(query, retryCount + 1);
                 }
             }
