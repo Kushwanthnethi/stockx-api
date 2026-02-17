@@ -19,6 +19,9 @@ export class StrategistService {
         'BSE': 'BSE'
     };
 
+    private strategyCache: Map<string, { result: string, timestamp: number }> = new Map();
+    private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
     constructor(
         private configService: ConfigService,
         private aiConfig: AIConfigService
@@ -27,6 +30,14 @@ export class StrategistService {
     // ... (rest of class)
 
     private async generateStrategy(query: string, symbol: string, quote: any, technicals: any, fundamentals: any, news: any[], retryCount = 0): Promise<string> {
+        // 1. Check Cache
+        const cacheKey = `${symbol}_${query.toLowerCase().trim()}`;
+        const cached = this.strategyCache.get(cacheKey);
+        if (cached && (Date.now() - cached.timestamp < this.CACHE_TTL)) {
+            this.logger.log(`Serving cached strategy for ${symbol}`);
+            return cached.result;
+        }
+
         const { model, pool } = this.aiConfig.getModelWithPool({ model: 'gemini-2.0-flash', isStrategist: true });
         if (!model) return "## ⚠️ System Busy\n\nOur AI Strategist pool is temporarily exhausted. Please try again in a few minutes.";
 
@@ -76,7 +87,12 @@ export class StrategistService {
             `;
 
             const result = await model.generateContent(prompt);
-            return result.response.text();
+            const strategistResponse = result.response.text();
+
+            // Save to Cache
+            this.strategyCache.set(cacheKey, { result: strategistResponse, timestamp: Date.now() });
+
+            return strategistResponse;
         } catch (error: any) {
             if (error.status === 429 || error.message?.includes('429')) {
                 const targetPool = pool === 'none' ? 'strategist' : pool;
