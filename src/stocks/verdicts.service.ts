@@ -65,7 +65,7 @@ export class VerdictsService implements OnModuleInit {
     private prisma: PrismaService,
     private stocksService: StocksService,
     private aiConfig: AIConfigService,
-  ) {}
+  ) { }
 
   async onModuleInit() {
     this.markNifty50Stocks();
@@ -289,9 +289,9 @@ export class VerdictsService implements OnModuleInit {
             
             Recent News headers:
             ${news
-              .slice(0, 3)
-              .map((n: any) => `- ${n.title}`)
-              .join('\n')}
+          .slice(0, 3)
+          .map((n: any) => `- ${n.title}`)
+          .join('\n')}
 
             Task:
             Provide a verdict based on technicals (30-day view) and fundamentals.
@@ -361,9 +361,9 @@ export class VerdictsService implements OnModuleInit {
             const match = detail.retryDelay.match(/(\d+)s/);
             if (match) delaySeconds = parseInt(match[1]) + 5; // Add buffer
           }
-        } catch (err) {}
+        } catch (err) { }
 
-        this.aiConfig.handleQuotaExceeded(delaySeconds);
+        this.aiConfig.handleQuotaExceeded(delaySeconds, 'shared');
 
         // RETRY LOGIC: Try one more time with the new key after a small backoff
         if (retryCount < 1 && !this.aiConfig.isAllExhausted) {
@@ -381,7 +381,7 @@ export class VerdictsService implements OnModuleInit {
         this.logger.error(
           `Model Overloaded for ${symbol}. Triggering global cooldown.`,
         );
-        this.aiConfig.handleServiceOverload(60); // 1 min pause
+        this.aiConfig.handleServiceOverload(60, 'shared'); // 1 min pause
       } else {
         this.logger.error(`Failed to generate veredict for ${symbol}`, e);
       }

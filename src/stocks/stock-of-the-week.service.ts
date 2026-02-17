@@ -358,7 +358,7 @@ export class StockOfTheWeekService implements OnModuleInit {
           }
         } catch (err) { }
 
-        this.aiConfig.handleQuotaExceeded(delaySeconds, true);
+        this.aiConfig.handleQuotaExceeded(delaySeconds, 'sow');
 
         // RETRY LOGIC: Try one more time with the new key after a small backoff
         if (retryCount < 1 && !this.aiConfig.isAllExhausted) {
