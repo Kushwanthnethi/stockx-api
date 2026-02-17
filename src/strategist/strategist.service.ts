@@ -12,6 +12,17 @@ export class StrategistService {
     private model: any;
     private yf: any;
 
+    private static readonly COMMON_STOCKS: Record<string, string> = {
+        'RELIANCE': 'RELIANCE', 'TATA MOTORS': 'TATAMOTORS', 'HDFC BANK': 'HDFCBANK',
+        'INFY': 'INFY', 'ITC': 'ITC', 'SBI': 'SBIN', 'SBIN': 'SBIN', 'BAJFINANCE': 'BAJFINANCE',
+        'ZOMATO': 'ZOMATO', 'INDUS TOWERS': 'INDUSTOWER', 'BHARTI AIRTEL': 'BHARTIARTL',
+        'COAL INDIA': 'COALINDIA', 'ADANI ENT': 'ADANIENT', 'ASIAN PAINTS': 'ASIANPAINT',
+        'MARUTI': 'MARUTI', 'TITAN': 'TITAN', 'ULTRATECH': 'ULTRACEMCO', 'WIPRO': 'WIPRO',
+        'NESTLE': 'NESTLEIND', 'JSW STEEL': 'JSWSTEEL', 'GRASIM': 'GRASIM', 'L&T': 'LT',
+        'POWERGRID': 'POWERGRID', 'NTPC': 'NTPC', 'TATA STEEL': 'TATASTEEL', 'HCL TECH': 'HCLTECH',
+        'BSE': 'BSE'
+    };
+
     constructor(private configService: ConfigService) {
         const apiKey = this.configService.get<string>('STRATEGIST_GEMINI_API_KEY');
         if (!apiKey) {
@@ -151,31 +162,27 @@ export class StrategistService {
     private async extractSymbol(query: string): Promise<string | null> {
         try {
             const upperQuery = query.toUpperCase();
+            const commonWords = new Set(['BOUGHT', 'SHARES', 'SHARE', 'PRICE', 'TARGET', 'ACTION', 'VERDICT', 'MOVE', 'NEXT', 'SELL', 'BUY', 'HOLD', 'ENTRY', 'STOP', 'LOSS', 'ZONE']);
 
-            // 1. Direct Regex Match for existing symbols (priority)
+            // 1. Direct Regex Match
             const symbolRegex = /\b[A-Z0-9-]{3,15}(\.(NS|BO))?\b/g;
-            const matches = upperQuery.match(symbolRegex);
+            const matches = upperQuery.match(symbolRegex) || [];
 
-            if (matches && matches.length > 0) {
-                // Return the first match, ensuring it has .NS if it's likely an NSE stock 
-                // but for now we trust the exact match if provided
-                return matches[0];
+            // Priority 1: Has .NS or .BO suffix (High confidence)
+            const explicitMatch = matches.find(m => m.includes('.NS') || m.includes('.BO'));
+            if (explicitMatch) return explicitMatch;
+
+            // Priority 2: Filter out common words and pick the most likely candidate
+            const candidates = matches.filter(m => !commonWords.has(m) && !/^\d+$/.test(m));
+            if (candidates.length === 1) {
+                // If it's a known symbol in our common map, use that mapping
+                const mapped = this.getCommonMapping(candidates[0]);
+                return mapped || candidates[0];
             }
 
             // Common mapping for popular stocks that might be missed
-            const commonStocks: Record<string, string> = {
-                'RELIANCE': 'RELIANCE', 'TATA MOTORS': 'TATAMOTORS', 'HDFC BANK': 'HDFCBANK',
-                'INFY': 'INFY', 'ITC': 'ITC', 'SBI': 'SBIN', 'BAJFINANCE': 'BAJFINANCE',
-                'ZOMATO': 'ZOMATO', 'INDUS TOWERS': 'INDUSTOWER', 'BHARTI AIRTEL': 'BHARTIARTL',
-                'COAL INDIA': 'COALINDIA', 'ADANI ENT': 'ADANIENT', 'ASIAN PAINTS': 'ASIANPAINT',
-                'MARUTI': 'MARUTI', 'TITAN': 'TITAN', 'ULTRATECH': 'ULTRACEMCO', 'WIPRO': 'WIPRO',
-                'NESTLE': 'NESTLEIND', 'JSW STEEL': 'JSWSTEEL', 'GRASIM': 'GRASIM', 'L&T': 'LT',
-                'POWERGRID': 'POWERGRID', 'NTPC': 'NTPC', 'TATA STEEL': 'TATASTEEL', 'HCL TECH': 'HCLTECH'
-            };
-
-            for (const [key, val] of Object.entries(commonStocks)) {
-                if (upperQuery.includes(key)) return val + '.NS';
-            }
+            const mappedResult = this.checkCommonMapping(upperQuery);
+            if (mappedResult) return mappedResult;
 
             // 2. AI Extraction for complex or unmapped names
             if (!this.model) return null;
@@ -301,5 +308,15 @@ export class StrategistService {
         };
     }
 
+    private getCommonMapping(symbol: string): string | null {
+        const val = StrategistService.COMMON_STOCKS[symbol];
+        return val ? val + '.NS' : null;
+    }
 
+    private checkCommonMapping(query: string): string | null {
+        for (const [key, val] of Object.entries(StrategistService.COMMON_STOCKS)) {
+            if (query.includes(key)) return val + '.NS';
+        }
+        return null;
+    }
 }
