@@ -15,8 +15,7 @@ export class StrategistService {
         'COAL INDIA': 'COALINDIA', 'ADANI ENT': 'ADANIENT', 'ASIAN PAINTS': 'ASIANPAINT',
         'MARUTI': 'MARUTI', 'TITAN': 'TITAN', 'ULTRATECH': 'ULTRACEMCO', 'WIPRO': 'WIPRO',
         'NESTLE': 'NESTLEIND', 'JSW STEEL': 'JSWSTEEL', 'GRASIM': 'GRASIM', 'L&T': 'LT',
-        'POWERGRID': 'POWERGRID', 'NTPC': 'NTPC', 'TATA STEEL': 'TATASTEEL', 'HCL TECH': 'HCLTECH',
-        'BSE': 'BSE'
+        'HCL TECH': 'HCLTECH', 'BSE': 'BSE', 'ANANT RAJ': 'ANANTRAJ', 'ANANTRAJ': 'ANANTRAJ'
     };
 
     private strategyCache: Map<string, { result: string, timestamp: number }> = new Map();

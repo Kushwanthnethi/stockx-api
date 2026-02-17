@@ -97,10 +97,8 @@ export class AIConfigService {
         this.strategistKeyIndex = index;
         return { model: this.strategistClients[index].getGenerativeModel(config), pool: 'strategist' };
       }
-      this.logger.warn(`CRITICAL: Strategist pool exhausted (All 4 keys hit limit). Falling back to shared keys...`);
-      return this.getAvailableKeyIndex('shared') !== null
-        ? this.getModelWithPool({ ...config, isStrategist: false })
-        : { model: null as any, pool: 'none' };
+      this.logger.error(`CRITICAL: Strategist pool exhausted (All dedicated keys hit limit).`);
+      return { model: null as any, pool: 'none' };
     }
 
     // 3. Shared Pool
