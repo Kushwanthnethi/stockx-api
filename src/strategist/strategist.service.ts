@@ -524,13 +524,20 @@ export class StrategistService {
             if (priceMatch && priceMatch[1]) price = parseFloat(priceMatch[1].replace(/,/g, ''));
 
             // Extract Change Percent
-            // Pattern: <div class="JwB6zf" ...>1.25%</div> or similar class structure for sign
-            // Simplify: Look for the percentage pattern near the price.
+            // Look for the main percentage change chip. It usually follows the price.
+            // Google often classes it as "NydbP nZnLmg" (Green) or "NydbP YnK08c" (Red).
+            // Robust approach: Find the first signed percentage after the price div.
             let changePercent = 0;
-            const changeMatch = data.match(/\+?\-?[0-9,]+\.?[0-9]*%/);
-            if (changeMatch) {
-                const val = parseFloat(changeMatch[0].replace('%', '').replace('+', ''));
-                if (!isNaN(val)) changePercent = val;
+            // Matches +1.25% or -0.45% or 0.00% immediately in the text content
+            const changeMatch = data.match(/<div class="[^"]*">[+]?(-?[0-9,]+\.?[0-9]*)%<\/div>/);
+
+            // Backup regex if class searching fails: simple pattern scan
+            const simpleMatch = data.match(/[+-][0-9,]+\.?[0-9]{1,2}%/);
+
+            if (changeMatch && changeMatch[1]) {
+                changePercent = parseFloat(changeMatch[1].replace(/,/g, ''));
+            } else if (simpleMatch) {
+                changePercent = parseFloat(simpleMatch[0].replace('%', '').replace('+', '').replace(/,/g, ''));
             }
 
             // Extract Key Stats using robust label search
