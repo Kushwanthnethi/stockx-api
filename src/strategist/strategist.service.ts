@@ -452,7 +452,29 @@ export class StrategistService {
                             } as any;
                         }
                     } catch (summaryErr: any) {
-                        this.logger.error(`Critical: All fetch methods failed for ${symbol}.`, summaryErr);
+                        this.logger.error(`Critical: All Yahoo fetch methods failed for ${symbol}.`, summaryErr);
+                    }
+                }
+
+                // ULTRA FALLBACK: Tickertape (Rich Data)
+                // If Yahoo fails completely, try Tickertape to get Price + Key Ratios (PE, PB, MarketCap)
+                // This allows the Strategist to still function reasonably well.
+                if (!quote) {
+                    this.logger.warn(`Yahoo completely failed. Attempting Tickertape fallback for ${symbol}.`);
+                    const ttData = await this.fetchTickertapeData(symbol);
+                    if (ttData) {
+                        quote = {
+                            symbol: symbol,
+                            regularMarketPrice: ttData.price,
+                            shortName: symbol,
+                            longName: symbol,
+                            regularMarketChangePercent: ttData.changePercent || 0,
+                            // Enhance quote with extra data for the AI analysis if possible
+                            marketCap: ttData.marketCap,
+                            trailingPE: ttData.pe,
+                            priceToBook: ttData.pb
+                        } as any;
+                        this.logger.log(`Tickertape fallback successful for ${symbol}`);
                     }
                 }
             }
@@ -460,6 +482,87 @@ export class StrategistService {
             return quote;
         } catch (e: any) {
             this.logger.error(`Fetch quote completely failed for ${symbol}`, e);
+            return null;
+        }
+    }
+
+    // ULTRA FALLBACK: Tickertape Scraper
+    private async fetchTickertapeData(symbol: string) {
+        try {
+            // Map Symbol: Tickertape uses 'RELIANCE' for NSE, 'RELIANCE-BOM' for BSE usually, 
+            // but the search URL is safer. 
+            // Easy path: https://www.tickertape.in/stocks/reliance-industries-RELI?checklist=basic
+            // But we don't know the slug 'reliance-industries-RELI'.
+            // Revert to Google Finance for reliability if Tickertape slug is unknown?
+            // BETTER: Use Google Finance which we know works for sure with Ticker:Exchange format.
+            // Tickertape is hard to scrape without the exact slug.
+
+            // LET'S USE GOOGLE FINANCE FOR EXTENDED DATA
+            // Google Finance page actually has P/E, Mkt Cap etc.
+
+            return await this.fetchGoogleFinanceExtended(symbol);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    private async fetchGoogleFinanceExtended(symbol: string) {
+        try {
+            let googleSymbol = symbol;
+            let exchange = 'NSE';
+            if (symbol.endsWith('.NS')) { googleSymbol = symbol.replace('.NS', ''); exchange = 'NSE'; }
+            if (symbol.endsWith('.BO')) { googleSymbol = symbol.replace('.BO', ''); exchange = 'BOM'; }
+
+            const url = `https://www.google.com/finance/quote/${googleSymbol}:${exchange}`;
+            // @ts-ignore
+            const axios = (await import('axios')).default;
+            const { data } = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+
+            // Extract Price
+            let price = 0;
+            const priceMatch = data.match(/<div class="YMlKec fxKbKc">[^0-9]*([0-9,]+\.?[0-9]*)<\/div>/);
+            if (priceMatch && priceMatch[1]) price = parseFloat(priceMatch[1].replace(/,/g, ''));
+
+            // Extract Change Percent
+            // Pattern: <div class="JwB6zf" ...>1.25%</div> or similar class structure for sign
+            // Simplify: Look for the percentage pattern near the price.
+            let changePercent = 0;
+            const changeMatch = data.match(/\+?\-?[0-9,]+\.?[0-9]*%/);
+            if (changeMatch) {
+                const val = parseFloat(changeMatch[0].replace('%', '').replace('+', ''));
+                if (!isNaN(val)) changePercent = val;
+            }
+
+            // Extract Key Stats using robust label search
+            // The structure is usually <div class="gyFHrc">Label</div> ... <div class="P6K39c">Value</div>
+            const extractStat = (label: string): number => {
+                // Regex looks for "Label" then finds the next numeric value div
+                const regex = new RegExp(`${label}<\\/div>[^<]*<div[^>]*>([^<]*)<\\/div>`, 'i');
+                const m = data.match(regex);
+                if (m && m[1]) {
+                    let valStr = m[1].replace(/,/g, '').trim();
+                    if (valStr.includes('T')) return parseFloat(valStr) * 1000000000000;
+                    if (valStr.includes('B')) return parseFloat(valStr) * 1000000000;
+                    if (valStr.includes('M')) return parseFloat(valStr) * 1000000;
+                    if (valStr.includes('Cr')) return parseFloat(valStr) * 10000000;
+                    if (valStr.includes('L')) return parseFloat(valStr) * 100000;
+                    return parseFloat(valStr) || 0;
+                }
+                return 0;
+            };
+
+            const marketCap = extractStat('Market cap');
+            const pe = extractStat('P/E ratio');
+            const yieldVal = extractStat('Dividend yield');
+
+            return {
+                price,
+                marketCap,
+                pe,
+                pb: 0, // Hard to reliably find on mobile view of Google Finance
+                changePercent: changePercent
+            };
+        } catch (e) {
             return null;
         }
     }
