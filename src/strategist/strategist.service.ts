@@ -82,7 +82,8 @@ export class StrategistService {
         'RCF': 'RCF', 'GNFC': 'GNFC', 'GSFC': 'GSFC', 'NFL': 'NFL',
         'ZEEL': 'ZEEL', 'SUNTV': 'SUNTV', 'PVRINOX': 'PVRINOX', 'PVR': 'PVRINOX',
         'INOXLEISUR': 'PVRINOX', 'NETWORK18': 'NETWORK18', 'TV18BRDCST': 'TV18BRDCST',
-        'ARE&M': 'ARE&M', 'AMARA RAJA': 'ARE&M'
+        'ARE&M': 'ARE&M', 'AMARA RAJA': 'ARE&M',
+        'PREMIER ENERGIES': 'PREMIERENE.NS', 'PREMIER': 'PREMIERENE.NS', 'PREMIERENE': 'PREMIERENE.NS'
     };
 
     private strategyCache: Map<string, { result: string, timestamp: number }> = new Map();
@@ -228,7 +229,7 @@ export class StrategistService {
         this.logger.log(`Analyzing query: ${query}`);
 
         // 1. Identify Stock Symbol using AI (Simple extraction)
-        const symbol = await this.extractSymbol(query);
+        let symbol = await this.extractSymbol(query);
         if (!symbol) {
             return {
                 error: "I couldn't identify the stock symbol. Please mention the stock name clearly (e.g., 'Target for Reliance')."
@@ -237,20 +238,32 @@ export class StrategistService {
 
         this.logger.log(`Identified Symbol: ${symbol}`);
 
+        // FIX: Ensure no double extension (e.g. PREMIERENE.NS.NS)
+        if (symbol.endsWith('.NS.NS')) symbol = symbol.replace('.NS.NS', '.NS');
+        if (symbol.endsWith('.BO.BO')) symbol = symbol.replace('.BO.BO', '.BO');
+
         let quote, history, fundamentals, news, technicals, strategy;
 
         try {
             // 2. Fetch Holistic Data
-            [quote, history, fundamentals, news] = await Promise.all([
-                this.fetchQuote(symbol),
-                this.fetchHistory(symbol), // 300 days for 200DMA
-                this.fetchFundamentals(symbol),
-                this.fetchNews(symbol)
-            ]);
+            // We fetch quote first to get the company name for better news search
+            quote = await this.fetchQuote(symbol);
 
             if (!quote || !quote.regularMarketPrice) {
                 return { error: `Could not fetch data for ${symbol}. Please check the symbol.` };
             }
+
+            // Use company name for news if available, otherwise symbol
+            const newsQuery = quote.shortName || quote.longName || symbol;
+            const cleanNewsQuery = newsQuery.replace(/Limited|Ltd\.?|Incorporated|Inc\.?|Corp\.?|Corporation/gi, '').trim();
+
+            this.logger.log(`Fetching news for: ${cleanNewsQuery} (derived from ${newsQuery})`);
+
+            [history, fundamentals, news] = await Promise.all([
+                this.fetchHistory(symbol), // 300 days for 200DMA
+                this.fetchFundamentals(symbol),
+                this.fetchNews(cleanNewsQuery)
+            ]);
 
             // 3. Calculate Technicals
             technicals = this.calculateTechnicals(history, quote.regularMarketPrice);
@@ -312,6 +325,32 @@ export class StrategistService {
                 if (mapped) return mapped;
             }
 
+            // 3. Dynamic Search Fallback (The "Every Possible Entity" Check)
+            // If regex and static mapping fail, use Yahoo Finance Search API
+            const cleanQuery = query.replace(/\b(price|target|analysis|prediction|forecast|news|buy|sell|hold|stock|share|market)\b/gi, '').trim();
+            if (cleanQuery.length > 2) {
+                this.logger.log(`Dynamic Search for Symbol: ${cleanQuery}`);
+                try {
+                    const yf = await this.getYahooClient();
+                    const searchRes = await yf.search(cleanQuery, { newsCount: 0, quotesCount: 5 });
+
+                    if (searchRes.quotes && searchRes.quotes.length > 0) {
+                        // Priority 1: Exact Match on Shortname or Symbol
+                        const exactMatch = searchRes.quotes.find((q: any) =>
+                            (q.symbol.endsWith('.NS') || q.symbol.endsWith('.BO')) &&
+                            (q.shortname?.toUpperCase() === cleanQuery.toUpperCase() || q.symbol.replace('.NS', '').replace('.BO', '') === cleanQuery.toUpperCase())
+                        );
+                        if (exactMatch) return exactMatch.symbol;
+
+                        // Priority 2: Any NSE/BSE stock
+                        const indianStock = searchRes.quotes.find((q: any) => q.symbol.endsWith('.NS') || q.symbol.endsWith('.BO'));
+                        if (indianStock) return indianStock.symbol;
+                    }
+                } catch (searchErr) {
+                    this.logger.warn(`Dynamic search failed for ${cleanQuery}`, searchErr);
+                }
+            }
+
             // AI Fallback
             this.logger.log(`Regex/Mapping extraction failed for query: "${query}". Attempting AI extraction fallback...`);
             const aiSymbol = await this.extractSymbolWithAI(query);
@@ -363,6 +402,13 @@ export class StrategistService {
             if (trimmed.length >= 2 && trimmed.length <= 15 && !trimmed.includes('.')) {
                 return `${trimmed}.NS`;
             }
+
+            // Sanity check for double extension
+            if (trimmed.endsWith('.NS.NS')) {
+                return trimmed.replace('.NS.NS', '.NS');
+            }
+
+            return trimmed.includes('.') ? trimmed : `${trimmed}.NS`;
 
             return null;
         } catch (error) {
