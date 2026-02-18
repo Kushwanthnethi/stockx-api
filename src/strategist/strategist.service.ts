@@ -452,6 +452,27 @@ export class StrategistService {
                         this.logger.error(`Alternative fetch failed for ${alternative}`);
                     }
                 }
+
+                // Final Defense: quoteSummary (often works when quote is blocked)
+                if (!quote) {
+                    this.logger.warn(`Both primary and alternative failed. Attempting quoteSummary fallback for ${symbol}.`);
+                    try {
+                        const summary = await (await this.getYahooClient()).quoteSummary(symbol, { modules: ['price'] });
+                        if (summary && summary.price && summary.price.regularMarketPrice) {
+                            // Map quoteSummary result to Quote structure
+                            quote = {
+                                ...summary.price,
+                                symbol: symbol,
+                                regularMarketPrice: summary.price.regularMarketPrice,
+                                shortName: summary.price.shortName,
+                                longName: summary.price.longName,
+                                regularMarketChangePercent: summary.price.regularMarketChangePercent
+                            } as any;
+                        }
+                    } catch (summaryErr: any) {
+                        this.logger.error(`Critical: All fetch methods failed for ${symbol}.`, summaryErr);
+                    }
+                }
             }
 
             return quote;
