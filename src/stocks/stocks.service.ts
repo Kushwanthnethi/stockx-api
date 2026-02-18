@@ -187,6 +187,44 @@ export class StocksService {
     return result;
   }
 
+  // Helper to scrape Google Finance price as a fallback
+  private async fetchGooglePrice(symbol: string): Promise<number | null> {
+    try {
+      let googleSymbol = symbol;
+      let exchange = 'NSE';
+
+      if (symbol.endsWith('.NS')) {
+        googleSymbol = symbol.replace('.NS', '');
+        exchange = 'NSE';
+      } else if (symbol.endsWith('.BO')) {
+        googleSymbol = symbol.replace('.BO', '');
+        exchange = 'BOM';
+      }
+
+      const url = `https://www.google.com/finance/quote/${googleSymbol}:${exchange}`;
+      const axios = (await import('axios')).default;
+
+      const { data } = await axios.get(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
+
+      const match = data.match(/<div class="YMlKec fxKbKc">[^0-9]*([0-9,]+\.?[0-9]*)<\/div>/);
+      if (match && match[1]) {
+        const priceStr = match[1].replace(/,/g, '');
+        const price = parseFloat(priceStr);
+        if (!isNaN(price)) {
+          console.log(`Google Finance fallback success for ${symbol}: ${price}`);
+          return price;
+        }
+      }
+    } catch (e) {
+      console.warn(`Google Finance fallback failed for ${symbol}`);
+    }
+    return null;
+  }
+
   async findOne(symbol: string) {
     // Alias for branded name "Eternal" -> "ZOMATO.NS"
     if (symbol === 'ETERNAL') symbol = 'ZOMATO.NS';
@@ -403,11 +441,57 @@ export class StocksService {
         });
         return updatedStock;
       } catch (error) {
-        console.error(`Failed to fetch data for ${symbol}:`, error);
+        console.error(`Failed to fetch data via Yahoo for ${symbol}:`, error);
+
+        // FALLBACK: Try Google Finance scraping
+        console.log(`Attempting Google Finance fallback for ${symbol}...`);
+        const fallbackPrice = await this.fetchGooglePrice(symbol);
+
+        if (fallbackPrice) {
+          console.log(`Fallback successful. Updating ${symbol} with price ${fallbackPrice}`);
+          const fallbackData = {
+            currentPrice: fallbackPrice,
+            companyName: symbol, // Best effort
+            exchange: symbol.includes('.BO') ? 'BSE' : 'NSE',
+            lastUpdated: new Date(),
+            // Set basics to avoid validation issues, others remain outdated or 0
+            marketCap: stock?.marketCap || 0,
+            peRatio: stock?.peRatio || 0,
+            pbRatio: stock?.pbRatio || 0,
+            high52Week: stock?.high52Week || 0,
+            low52Week: stock?.low52Week || 0,
+            bookValue: stock?.bookValue || 0,
+            dividendYield: stock?.dividendYield || 0,
+            returnOnEquity: stock?.returnOnEquity || 0,
+            returnOnAssets: stock?.returnOnAssets || 0,
+            totalDebt: stock?.totalDebt || 0,
+            totalRevenue: stock?.totalRevenue || 0,
+            profitMargins: stock?.profitMargins || 0,
+            operatingMargins: stock?.operatingMargins || 0,
+            currentRatio: stock?.currentRatio || 0,
+            debtToEquity: stock?.debtToEquity || 0,
+            freeCashflow: stock?.freeCashflow || 0,
+            earningsGrowth: stock?.earningsGrowth || 0,
+            revenueGrowth: stock?.revenueGrowth || 0,
+            ebitda: stock?.ebitda || 0,
+            quickRatio: stock?.quickRatio || 0,
+          };
+
+          const updatedStock = await this.prisma.stock.upsert({
+            where: { symbol },
+            update: fallbackData,
+            create: {
+              symbol,
+              ...fallbackData,
+              description: null,
+              sector: null
+            },
+            include: { investorStocks: { include: { investor: true } }, financials: true },
+          });
+          return updatedStock;
+        }
 
         // CRITICAL: Update lastUpdated even on failure to prevent immediate retry loop (spamming API)
-        // If we don't do this, every request will try to fetch again, causing 429s.
-        // We set it to now, so it won't try again for another 15 minutes (or whatever logic checks `lastUpdated`)
         if (stock) {
           await this.prisma.stock.update({
             where: { symbol },
