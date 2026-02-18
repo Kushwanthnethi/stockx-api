@@ -418,35 +418,45 @@ export class StrategistService {
     }
 
     private async fetchQuote(symbol: string) {
-        try {
-            const yf = await this.getYahooClient();
-            let quote = await yf.quote(symbol);
+        // Helper for retry logic
+        const fetchWithRetry = async (sym: string, retries = 2) => {
+            try {
+                const yf = await this.getYahooClient();
+                for (let i = 0; i <= retries; i++) {
+                    try {
+                        const q = await yf.quote(sym);
+                        if (q && q.regularMarketPrice) return q;
+                    } catch (e) {
+                        if (i === retries) throw e;
+                        await new Promise(r => setTimeout(r, 1000 * (i + 1))); // Linear backoff
+                    }
+                }
+            } catch (err) { return null; }
+            return null;
+        };
 
-            if (!quote || !quote.regularMarketPrice) {
-                // Fallback: If it was .NS, try .BO or vice-versa
-                const alternative = symbol.endsWith('.NS')
-                    ? symbol.replace('.NS', '.BO')
-                    : symbol.endsWith('.BO')
-                        ? symbol.replace('.BO', '.NS')
-                        : null;
+        try {
+            let quote = await fetchWithRetry(symbol);
+
+            if (!quote) {
+                // Determine alternative symbol
+                let alternative = null;
+                if (symbol.endsWith('.NS')) alternative = symbol.replace('.NS', '.BO');
+                else if (symbol.endsWith('.BO')) alternative = symbol.replace('.BO', '.NS');
 
                 if (alternative) {
-                    this.logger.log(`Fetch failed for ${symbol}, trying alternative: ${alternative}`);
-                    quote = await yf.quote(alternative);
+                    this.logger.warn(`Primary fetch failed for ${symbol}, trying alternative: ${alternative}`);
+                    try {
+                        quote = await fetchWithRetry(alternative);
+                    } catch (e) {
+                        this.logger.error(`Alternative fetch failed for ${alternative}`);
+                    }
                 }
             }
 
             return quote;
         } catch (e: any) {
-            this.logger.error(`Quote fetch failed for ${symbol}: ${e.message}`, e.stack);
-
-            // Final desperate attempt at alternative if error thrown
-            try {
-                const yf = await this.getYahooClient();
-                const alternative = symbol.endsWith('.NS') ? symbol.replace('.NS', '.BO') : null;
-                if (alternative) return await yf.quote(alternative);
-            } catch { }
-
+            this.logger.error(`Fetch quote completely failed for ${symbol}`, e);
             return null;
         }
     }
