@@ -87,19 +87,19 @@ export class StrategistService {
         'PREMIER ENERGIES': 'PREMIERENE.NS', 'PREMIER': 'PREMIERENE.NS', 'PREMIERENE': 'PREMIERENE.NS'
     };
 
-    private strategyCache: Map<string, { result: string, timestamp: number }> = new Map();
+    private strategyCache: Map<string, { result: string, timestamp: number, isFallback?: boolean }> = new Map();
     private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 
     // ... (rest of class)
 
-    private async generateStrategy(query: string, symbol: string, quote: any, technicals: any, fundamentals: any, news: any[], retryCount = 0): Promise<string> {
+    private async generateStrategy(query: string, symbol: string, quote: any, technicals: any, fundamentals: any, news: any[], retryCount = 0): Promise<any> {
         // 1. Check Cache
         const cacheKey = `${symbol}_${query.toLowerCase().trim()}`;
         const cached = this.strategyCache.get(cacheKey);
         if (cached && (Date.now() - cached.timestamp < this.CACHE_TTL)) {
             this.logger.log(`Serving cached strategy for ${symbol}`);
-            return cached.result;
+            return cached;
         }
 
         try {
@@ -177,9 +177,14 @@ export class StrategistService {
             }
 
             // Save to Cache
-            this.strategyCache.set(cacheKey, { result: strategistResponse, timestamp: Date.now() });
+            const result = {
+                result: strategistResponse,
+                timestamp: Date.now(),
+                isFallback: quote.isFallback || false
+            };
+            this.strategyCache.set(cacheKey, result);
 
-            return strategistResponse;
+            return result;
         } catch (error: any) {
             if (error.message === 'GROQ_RATE_LIMIT') {
                 if (retryCount < 3) {
@@ -188,7 +193,11 @@ export class StrategistService {
                     await new Promise(r => setTimeout(r, waitTime));
                     return this.generateStrategy(query, symbol, quote, technicals, fundamentals, news, retryCount + 1);
                 }
-                return "## ⚠️ System Busy\n\nOur AI Strategist is experiencing high demand on Groq. Please try again in 1 minute.";
+                return {
+                    result: "## ⚠️ System Busy\n\nOur AI Strategist is experiencing high demand on Groq. Please try again in 1 minute.",
+                    timestamp: Date.now(),
+                    isFallback: false
+                };
             }
             this.logger.error("Groq Strategy Generation Failed", error);
             throw error;
@@ -251,7 +260,13 @@ export class StrategistService {
             technicals = this.calculateTechnicals(history, quote.regularMarketPrice);
 
             // 4. Generate AI Strategy
-            strategy = await this.generateStrategy(query, symbol, quote, technicals, fundamentals, news);
+            const strategyResult = await this.generateStrategy(query, symbol, quote, technicals, fundamentals, news);
+            strategy = strategyResult.result;
+
+            // Should we flag fallback here too?
+            if (strategyResult.isFallback) {
+                quote.isFallback = true;
+            }
 
         } catch (err) {
             this.logger.error("Analysis pipeline failed", err);
@@ -264,7 +279,8 @@ export class StrategistService {
             technicals,
             fundamentals,
             news,
-            strategy
+            strategy,
+            isFallback: quote.isFallback || false
         };
     }
 
@@ -472,7 +488,8 @@ export class StrategistService {
                             // Enhance quote with extra data for the AI analysis if possible
                             marketCap: ttData.marketCap,
                             trailingPE: ttData.pe,
-                            priceToBook: ttData.pb
+                            priceToBook: ttData.pb,
+                            isFallback: true // FLAG FOR UI
                         } as any;
                         this.logger.log(`Tickertape fallback successful for ${symbol}`);
                     }
