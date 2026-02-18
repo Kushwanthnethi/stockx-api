@@ -9,13 +9,34 @@ import { NIFTY_50_STOCKS, NIFTY_MIDCAP_100_STOCKS } from '../cron/constants';
 
 @Injectable()
 export class StocksService {
-  constructor(
-    private prisma: PrismaService,
-    private yahooFinanceService: YahooFinanceService
-  ) { }
+  private yahooFinance: any = null;
+
+  constructor(private prisma: PrismaService) { }
 
   private async getYahooClient() {
-    return this.yahooFinanceService.getClient();
+    if (this.yahooFinance) return this.yahooFinance;
+
+    try {
+      // Dynamic import to handle ESM/CommonJS quirks of this library
+      // @ts-ignore
+      const pkg = await import('yahoo-finance2');
+      const YahooFinanceClass = pkg.default || pkg;
+
+      if (typeof YahooFinanceClass === 'function') {
+        const config = {
+          validation: { logErrors: false },
+        };
+        // @ts-ignore
+        this.yahooFinance = new YahooFinanceClass(config);
+      } else {
+        this.yahooFinance = YahooFinanceClass;
+      }
+      console.log('Yahoo Finance client initialized');
+    } catch (e) {
+      console.error('Failed to initialize YahooFinance client', e);
+      throw e;
+    }
+    return this.yahooFinance;
   }
 
   async getQuarterlyDetails(symbol: string) {
