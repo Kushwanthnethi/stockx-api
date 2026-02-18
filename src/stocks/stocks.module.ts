@@ -11,6 +11,8 @@ import { AIConfigService } from './ai-config.service';
 import { ScrapeController } from '../controllers/scrape.controller';
 import { BseScraperService } from '../services/bse-scraper.service';
 
+import { YahooFinanceService } from './yahoo-finance.service';
+
 @Module({
   imports: [PrismaModule, ConfigModule],
   controllers: [StocksController, StockOfTheWeekController, VerdictsController, ScrapeController],
@@ -20,7 +22,8 @@ import { BseScraperService } from '../services/bse-scraper.service';
     VerdictsService,
     AIConfigService,
     BseScraperService,
+    YahooFinanceService,
   ],
-  exports: [StocksService, AIConfigService],
+  exports: [StocksService, AIConfigService, YahooFinanceService],
 })
 export class StocksModule { }

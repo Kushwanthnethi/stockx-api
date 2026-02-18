@@ -54,8 +54,8 @@ export class StockOfTheWeekService implements OnModuleInit {
       setTimeout(() => this.handleWeeklySelection(), 5000);
     }
 
-    // Always run a sync for Max High on startup for active picks
-    setTimeout(() => this.syncMaxHigh(), 10000);
+    // Always run a sync for Max High on startup for active picks (Delayed 5 mins to avoid startup rate limits)
+    setTimeout(() => this.syncMaxHigh(), 300000);
   }
 
   // Run every Sunday at 12:00 PM IST (6:30 AM UTC)

@@ -3,13 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import { AIConfigService } from '../stocks/ai-config.service';
 import * as TechnicalIndicators from 'technicalindicators';
 import { GroqService } from '../services/groq.service';
+import { YahooFinanceService } from '../stocks/yahoo-finance.service';
 
 @Injectable()
 export class StrategistService {
     private readonly logger = new Logger(StrategistService.name);
-    private yf: any;
 
     private static readonly COMMON_STOCKS: Record<string, string> = {
+        // ... (starts at line 12 in original)
         // Nifty 50 / Major Large Caps
         'RELIANCE': 'RELIANCE', 'TCS': 'TCS', 'HDFCBANK': 'HDFCBANK', 'ICICIBANK': 'ICICIBANK',
         'INFY': 'INFY', 'BHARTIARTL': 'BHARTIARTL', 'ITC': 'ITC', 'SBIN': 'SBIN', 'SBI': 'SBIN',
@@ -89,11 +90,6 @@ export class StrategistService {
     private strategyCache: Map<string, { result: string, timestamp: number }> = new Map();
     private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-    constructor(
-        private configService: ConfigService,
-        private aiConfig: AIConfigService,
-        private groqService: GroqService
-    ) { }
 
     // ... (rest of class)
 
@@ -199,29 +195,15 @@ export class StrategistService {
         }
     }
 
-    private async getYahooClient() {
-        if (this.yf) return this.yf;
-        try {
-            // @ts-ignore
-            const pkg = await import('yahoo-finance2');
-            const YahooFinanceClass = pkg.default || pkg;
+    constructor(
+        private configService: ConfigService,
+        private aiConfig: AIConfigService,
+        private groqService: GroqService,
+        private yfService: YahooFinanceService
+    ) { }
 
-            if (typeof YahooFinanceClass === 'function') {
-                // @ts-ignore
-                this.yf = new YahooFinanceClass({
-                    validation: { logErrors: false },
-                    suppressNotices: ['yahooSurvey', 'ripHistorical']
-                });
-            } else if (YahooFinanceClass && typeof (YahooFinanceClass as any).quote === 'function') {
-                this.yf = YahooFinanceClass;
-            } else {
-                throw new Error('Yahoo Finance exports not recognized');
-            }
-            return this.yf;
-        } catch (error) {
-            this.logger.error('Failed to initialize Yahoo Finance client', error);
-            throw error;
-        }
+    private async getYahooClient() {
+        return this.yfService.getClient();
     }
 
 

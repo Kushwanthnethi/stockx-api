@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { YahooFinanceService } from './yahoo-finance.service';
 import {
   calculateTechnicalSignals,
   generateSyntheticRationale,
@@ -8,34 +9,13 @@ import { NIFTY_50_STOCKS, NIFTY_MIDCAP_100_STOCKS } from '../cron/constants';
 
 @Injectable()
 export class StocksService {
-  private yahooFinance: any = null;
-
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private yahooFinanceService: YahooFinanceService
+  ) { }
 
   private async getYahooClient() {
-    if (this.yahooFinance) return this.yahooFinance;
-
-    try {
-      // Dynamic import to handle ESM/CommonJS quirks of this library
-      // @ts-ignore
-      const pkg = await import('yahoo-finance2');
-      const YahooFinanceClass = pkg.default || pkg;
-
-      if (typeof YahooFinanceClass === 'function') {
-        const config = {
-          validation: { logErrors: false },
-        };
-        // @ts-ignore
-        this.yahooFinance = new YahooFinanceClass(config);
-      } else {
-        this.yahooFinance = YahooFinanceClass;
-      }
-      console.log('Yahoo Finance client initialized');
-    } catch (e) {
-      console.error('Failed to initialize YahooFinance client', e);
-      throw e;
-    }
-    return this.yahooFinance;
+    return this.yahooFinanceService.getClient();
   }
 
   async getQuarterlyDetails(symbol: string) {
