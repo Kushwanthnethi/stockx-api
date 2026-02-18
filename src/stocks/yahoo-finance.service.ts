@@ -19,7 +19,7 @@ export class YahooFinanceService {
 
             if (typeof YahooFinanceClass === 'function') {
                 const config = {
-                    validation: false, // Totally disable validation to allow partial results and avoid throwing errors on minor schema mismatches
+                    validation: { logErrors: false },
                 };
                 // @ts-ignore
                 this.yahooFinance = new YahooFinanceClass(config);

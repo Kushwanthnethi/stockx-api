@@ -439,7 +439,7 @@ export class StrategistService {
                 if (!quote) {
                     this.logger.warn(`Both primary and alternative failed. Attempting quoteSummary fallback for ${symbol}.`);
                     try {
-                        const summary = await (await this.getYahooClient()).quoteSummary(symbol, { modules: ['price'] });
+                        const summary = await (await this.getYahooClient()).quoteSummary(symbol, { modules: ['price'] }, { validate: false } as any);
                         if (summary && summary.price && summary.price.regularMarketPrice) {
                             // Map quoteSummary result to Quote structure
                             quote = {
