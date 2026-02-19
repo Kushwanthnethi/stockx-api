@@ -99,7 +99,7 @@ export class BseScraperService {
     private async fetchPdfUrl(scripCode: string): Promise<string> {
         // Use external script to bypass NestJS/Axios environment issues
         const scriptPath = path.join(process.cwd(), 'src', 'scripts', 'fetch-bse-url.js');
-        const command = `node --insecure-http-parser "${scriptPath}" ${scripCode}`;
+        const command = `node "${scriptPath}" ${scripCode}`;
 
         console.log(`[DEBUG] Executing: ${command}`);
 
