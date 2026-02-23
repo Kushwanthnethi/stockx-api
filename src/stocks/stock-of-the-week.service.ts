@@ -9,6 +9,8 @@ import { AIConfigService } from './ai-config.service';
 @Injectable()
 export class StockOfTheWeekService implements OnModuleInit {
   private readonly logger = new Logger(StockOfTheWeekService.name);
+  private lastSyncTime: number = 0;
+  private readonly SYNC_COOLDOWN = 4 * 60 * 60 * 1000; // 4 hours
 
   private getCurrentSundayIST(): Date {
     const now = new Date();
@@ -54,8 +56,14 @@ export class StockOfTheWeekService implements OnModuleInit {
       setTimeout(() => this.handleWeeklySelection(), 5000);
     }
 
-    // Always run a sync for Max High on startup for active picks
-    setTimeout(() => this.syncMaxHigh(), 10000);
+    // Always run a sync for Max High on startup for active picks, but with cooldown
+    const now = Date.now();
+    if (now - this.lastSyncTime > this.SYNC_COOLDOWN) {
+      this.logger.log('Cooldowned startup sync for Max High triggered.');
+      setTimeout(() => this.syncMaxHigh(), 12000);
+    } else {
+      this.logger.log('Skipping startup sync due to cooldown.');
+    }
   }
 
   // Run every Sunday at 12:00 PM IST (6:30 AM UTC)
@@ -396,14 +404,12 @@ export class StockOfTheWeekService implements OnModuleInit {
   // Daily Sync for Max High - Runs every day at 6:00 PM IST (UTC 12:30 PM)
   @Cron('0 13 * * *')
   async syncMaxHigh() {
-    this.logger.log('Syncing Max High for all active Stock of the Week picks...');
+    this.lastSyncTime = Date.now();
+    this.logger.log('Syncing Max High for all active Stock of the Week picks (Batch Mode)...');
     try {
       // Get picks that haven't been finalized (archived/closed)
-      // or those that are the current week's picks
       const activePicks = await this.prisma.stockOfTheWeek.findMany({
-        where: {
-          finalPrice: null,
-        },
+        where: { finalPrice: null },
       });
 
       if (activePicks.length === 0) {
@@ -411,11 +417,15 @@ export class StockOfTheWeekService implements OnModuleInit {
         return;
       }
 
-      this.logger.log(`Found ${activePicks.length} picks to sync.`);
+      const symbols = activePicks.map(p => p.stockSymbol);
+      this.logger.log(`Syncing ${symbols.length} active picks: ${symbols.join(', ')}`);
 
+      // 1. Batch fetch quotes (updates Stock DB internally)
+      const quotes = await this.stocksService.getQuotes(symbols);
+
+      // 2. Update SOW performance tracking
       for (const pick of activePicks) {
-        // Fetch fresh quote to get daily high
-        const quote = await this.stocksService.getQuote(pick.stockSymbol);
+        const quote = quotes.find(q => q.symbol === pick.stockSymbol);
 
         if (quote && quote.regularMarketDayHigh) {
           const dayHigh = quote.regularMarketDayHigh;
@@ -426,21 +436,17 @@ export class StockOfTheWeekService implements OnModuleInit {
               where: { id: pick.id },
               data: { maxHigh: dayHigh },
             });
-            this.logger.log(`Updated Max High for ${pick.stockSymbol}: ${dayHigh}`);
+            this.logger.log(`New ATH for ${pick.stockSymbol} in SOW tracking: ${dayHigh}`);
           } else if (pick.maxHigh === null) {
-            // Initialize if somehow null
             await this.prisma.stockOfTheWeek.update({
               where: { id: pick.id },
               data: { maxHigh: pick.priceAtSelection },
             });
           }
         }
-
-        // Also refresh the general stock data in DB
-        await this.stocksService.findOne(pick.stockSymbol);
       }
     } catch (e) {
-      this.logger.error('Failed to sync Max High prices', e);
+      this.logger.error('Failed to sync Max High prices', e.message);
     }
   }
 

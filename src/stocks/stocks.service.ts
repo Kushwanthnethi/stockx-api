@@ -193,6 +193,88 @@ export class StocksService {
     return result;
   }
 
+  async getQuotes(symbols: string[]) {
+    try {
+      this.logger.log(`Fetching batch quotes for ${symbols.length} symbols...`);
+
+      // 1. Map to Fyers Symbols
+      const fyersSymbols = symbols.map(s => SymbolMapper.toFyers(s));
+      const fyersQuotes = await this.fyersService.getQuotes(fyersSymbols);
+
+      if (fyersQuotes && fyersQuotes.length > 0) {
+        this.logger.log(`Received ${fyersQuotes.length} quotes from Fyers.`);
+
+        const results = [];
+        for (const symbol of symbols) {
+          const fyersSym = SymbolMapper.toFyers(symbol);
+          const q = fyersQuotes.find(fq => fq.n === fyersSym || fq.v?.n === fyersSym);
+
+          if (q) {
+            const price = q.lp || q.v?.lp || q.iv;
+            const high = q.h || q.v?.h || price;
+
+            if (price) {
+              // Update DB in background
+              await this.prisma.stock.update({
+                where: { symbol },
+                data: {
+                  currentPrice: price,
+                  changePercent: q.chp || q.v?.chp || 0,
+                  high52Week: q.h52 || q.v?.h52,
+                  low52Week: q.l52 || q.v?.l52,
+                  lastUpdated: new Date(),
+                },
+              }).catch(e => this.logger.error(`Failed to update ${symbol} in DB:`, e.message));
+
+              results.push({
+                symbol,
+                regularMarketPrice: price,
+                regularMarketDayHigh: high,
+              });
+            }
+          }
+        }
+        return results;
+      }
+
+      // 2. Fallback to Yahoo if Fyers fails/is empty
+      this.logger.warn('Fyers batch quotes empty, falling back to Yahoo Finance...');
+      const yahooFinance = await this.getYahooClient();
+      const results = [];
+
+      for (const symbol of symbols) {
+        try {
+          let q = await yahooFinance.quote(symbol);
+          if (Array.isArray(q)) q = q[0];
+          if (q) {
+            results.push({
+              symbol: q.symbol,
+              regularMarketPrice: q.regularMarketPrice,
+              regularMarketDayHigh: q.regularMarketDayHigh,
+            });
+            // Update DB
+            await this.prisma.stock.update({
+              where: { symbol: q.symbol },
+              data: {
+                currentPrice: q.regularMarketPrice,
+                changePercent: q.regularMarketChangePercent,
+                lastUpdated: new Date(),
+              },
+            }).catch(() => { });
+          }
+          // Small delay between Yahoo requests to avoid 429
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (e) {
+          this.logger.error(`Yahoo fallback failed for ${symbol}:`, e.message);
+        }
+      }
+      return results;
+    } catch (error) {
+      this.logger.error('Batch getQuotes failed:', error.message);
+      return [];
+    }
+  }
+
   // Helper to scrape Google Finance price as a fallback
   private async fetchGooglePrice(symbol: string): Promise<number | null> {
     try {
