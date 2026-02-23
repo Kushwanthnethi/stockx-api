@@ -1,0 +1,112 @@
+{
+  "message": "",
+  "code": 200,
+  "d": [
+    {
+      "n": "NSE:NIFTY50-INDEX",
+      "v": {
+        "ask": 0,
+        "bid": 0,
+        "chp": 0.64,
+        "ch": 163.95,
+        "description": "NSE:NIFTY50-INDEX",
+        "exchange": "NSE",
+        "fyToken": "101000000026000",
+        "high_price": 25771.45,
+        "low_price": 25626.5,
+        "lp": 25735.2,
+        "open_price": 25678.4,
+        "original_name": "NSE:NIFTY50-INDEX",
+        "prev_close_price": 25571.25,
+        "short_name": "NIFTY50-INDEX",
+        "spread": 0,
+        "symbol": "NSE:NIFTY50-INDEX",
+        "tt": "1771804800",
+        "volume": 0,
+        "atp": 0
+      },
+      "s": "ok"
+    },
+    {
+      "n": "NSE:NIFTYBANK-INDEX",
+      "v": {
+        "ask": 0,
+        "bid": 0,
+        "chp": 0.15,
+        "ch": 92.1,
+        "description": "NSE:NIFTYBANK-INDEX",
+        "exchange": "NSE",
+        "fyToken": "101000000026009",
+        "high_price": 61517.8,
+        "low_price": 61067.7,
+        "lp": 61264.1,
+        "open_price": 61145.55,
+        "original_name": "NSE:NIFTYBANK-INDEX",
+        "prev_close_price": 61172,
+        "short_name": "NIFTYBANK-INDEX",
+        "spread": 0,
+        "symbol": "NSE:NIFTYBANK-INDEX",
+        "tt": "1771804800",
+        "volume": 0,
+        "atp": 0
+      },
+      "s": "ok"
+    },
+    {
+      "n": "BSE:SENSEX-INDEX",
+      "v": {
+        "ask": 0,
+        "bid": 0,
+        "chp": 0.64,
+        "ch": 528.13,
+        "description": "BSE:SENSEX-INDEX",
+        "exchange": "BSE",
+        "fyToken": "12100000001",
+        "high_price": 83486.15,
+        "low_price": 82906.83,
+        "lp": 83342.84,
+        "open_price": 82906.83,
+        "original_name": "BSE:SENSEX-INDEX",
+        "prev_close_price": 82814.71,
+        "short_name": "SENSEX-INDEX",
+        "spread": 0,
+        "symbol": "BSE:SENSEX-INDEX",
+        "tt": "1771804800",
+        "volume": 0,
+        "atp": 0
+      },
+      "s": "ok"
+    },
+    {
+      "n": "NSE:NIFTY 50",
+      "v": {
+        "n": "NSE:NIFTY 50",
+        "errmsg": "Please provide a valid symbol",
+        "code": -300,
+        "s": "error"
+      },
+      "s": "ok"
+    },
+    {
+      "n": "NSE:NIFTY BANK",
+      "v": {
+        "n": "NSE:NIFTY BANK",
+        "errmsg": "Please provide a valid symbol",
+        "code": -300,
+        "s": "error"
+      },
+      "s": "ok"
+    },
+    {
+      "n": "BSE:SENSEX",
+      "v": {
+        "n": "BSE:SENSEX",
+        "errmsg": "Please provide a valid symbol",
+        "code": -300,
+        "s": "error"
+      },
+      "s": "ok"
+    }
+  ],
+  "s": "ok"
+}

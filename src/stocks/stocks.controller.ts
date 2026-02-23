@@ -69,7 +69,7 @@ export class StocksController {
   @Get(':symbol/history')
   getHistory(
     @Param('symbol') symbol: string,
-    @Query('range') range: '1d' | '1mo' | '3mo' | '1y',
+    @Query('range') range: '1d' | '1w' | '1mo' | '3mo' | '1y',
   ) {
     return this.stocksService.getHistory(symbol, range);
   }

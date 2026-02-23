@@ -1,0 +1,87 @@
+import {
+    WebSocketGateway,
+    WebSocketServer,
+    SubscribeMessage,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+} from '@nestjs/websockets';
+import { Logger } from '@nestjs/common';
+import { Server, Socket } from 'socket.io';
+
+@WebSocketGateway({
+    cors: {
+        origin: [
+            'http://localhost:3000',
+            'http://localhost:3001',
+            'https://stockx-web.vercel.app',
+            'https://www.stocksx.info',
+            'https://stocksx.info',
+        ],
+        credentials: true,
+    },
+    transports: ['websocket', 'polling'],
+    allowEIO3: true,
+})
+export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
+    @WebSocketServer()
+    server: Server;
+
+    private readonly logger = new Logger(StocksGateway.name);
+    private subscribedSymbols: Map<string, Set<string>> = new Map();
+
+    handleConnection(client: Socket) {
+        this.logger.log(`Client connected: ${client.id}`);
+        this.subscribedSymbols.set(client.id, new Set());
+    }
+
+    handleDisconnect(client: Socket) {
+        this.logger.log(`Client disconnected: ${client.id}`);
+        this.subscribedSymbols.delete(client.id);
+    }
+
+    @SubscribeMessage('subscribeStock')
+    handleSubscribe(client: Socket, symbol: string) {
+        if (!symbol) return;
+        this.logger.log(`Client ${client.id} subscribing to ${symbol}`);
+
+        if (!this.subscribedSymbols.has(client.id)) {
+            this.subscribedSymbols.set(client.id, new Set());
+        }
+        this.subscribedSymbols.get(client.id)?.add(symbol);
+
+        client.join(`stock_${symbol}`);
+        return { event: 'subscribed', data: symbol };
+    }
+
+    @SubscribeMessage('unsubscribeStock')
+    handleUnsubscribe(client: Socket, symbol: string) {
+        this.logger.log(`Client ${client.id} unsubscribing from ${symbol}`);
+
+        if (this.subscribedSymbols.has(client.id)) {
+            this.subscribedSymbols.get(client.id)?.delete(symbol);
+        }
+
+        client.leave(`stock_${symbol}`);
+        return { event: 'unsubscribed', data: symbol };
+    }
+
+    sendPriceUpdate(symbol: string, data: any) {
+        const roomName = `stock_${symbol}`;
+        const room = this.server.sockets.adapter.rooms.get(roomName);
+        const count = room ? room.size : 0;
+
+        // if (symbol === 'NIFTY 50' || symbol === 'SENSEX' || symbol === 'NIFTY BANK') {
+        //     this.logger.log(`[Gateway] Emitting ${symbol} update to ${count} clients in room ${roomName}. Price: ${data.price}`);
+        // }
+
+        this.server.to(roomName).emit('priceUpdate', data);
+    }
+
+    getAllSubscribedSymbols(): string[] {
+        const allSymbols = new Set<string>();
+        this.subscribedSymbols.forEach((symbols) => {
+            symbols.forEach((s) => allSymbols.add(s));
+        });
+        return Array.from(allSymbols);
+    }
+}

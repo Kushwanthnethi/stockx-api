@@ -1,17 +1,23 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { YahooFinanceService } from './yahoo-finance.service';
+import { FyersService } from './fyers.service';
+import { SymbolMapper } from './utils/symbol-mapper.util';
 import {
   calculateTechnicalSignals,
   generateSyntheticRationale,
 } from './utils/tech-analysis.util';
 import { NIFTY_50_STOCKS, NIFTY_MIDCAP_100_STOCKS } from '../cron/constants';
+// @ts-ignore
+import Parser = require('rss-parser');
 
 @Injectable()
 export class StocksService {
+  private parser = new Parser();
   constructor(
     private prisma: PrismaService,
-    private yahooFinanceService: YahooFinanceService
+    private yahooFinanceService: YahooFinanceService,
+    private fyersService: FyersService,
   ) { }
 
   private async getYahooClient() {
@@ -248,12 +254,14 @@ export class StocksService {
       }
     }
 
-    // Check if data is stale (older than 15 mins)
-    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000); // Fixed to 15 mins
+    // Check if data is stale (Indices: 1 min, Stocks: 15 mins)
+    const isSpecialIndex = symbol === 'NIFTY 50' || symbol === 'SENSEX' || symbol.startsWith('^');
+    const staleThreshold = isSpecialIndex ? 1 * 60 * 1000 : 15 * 60 * 1000;
+    const staleTime = new Date(Date.now() - staleThreshold);
 
     if (
       !stock ||
-      stock.lastUpdated < fifteenMinutesAgo ||
+      stock.lastUpdated < staleTime ||
       stock.currentPrice === 0
     ) {
       try {
@@ -261,12 +269,44 @@ export class StocksService {
 
         console.log(`Fetching live data for ${symbol}...`);
 
+        // Map names to Fyers symbols for indices
+        if (symbol === 'NIFTY 50' || symbol === 'SENSEX' || symbol === 'NIFTY BANK' || symbol.startsWith('^')) {
+          const fyersSymbol = SymbolMapper.toFyers(symbol);
+          const fyersQuotes = await this.fyersService.getQuotes([fyersSymbol]);
+
+          if (fyersQuotes && fyersQuotes.length > 0) {
+            const q = fyersQuotes[0];
+            const price = q.lp || q.v?.lp || q.iv; // iv is common for indices in lite mode
+
+            if (price) {
+              const dataToUpdate = {
+                currentPrice: price,
+                changePercent: q.chp || q.v?.chp || 0,
+                lastUpdated: new Date(),
+              };
+
+              const updatedStock = await this.prisma.stock.upsert({
+                where: { symbol },
+                update: dataToUpdate,
+                create: {
+                  symbol,
+                  companyName: symbol,
+                  exchange: symbol.startsWith('BSE') ? 'BSE' : 'NSE',
+                  ...dataToUpdate,
+                },
+              });
+              return updatedStock;
+            }
+          }
+        }
+
         const yahooFinance = await this.getYahooClient();
 
         // Map safe-display names to Yahoo symbols if needed
         let querySymbol = symbol;
         if (symbol === 'NIFTY 50') querySymbol = '^NSEI';
         if (symbol === 'SENSEX') querySymbol = '^BSESN';
+        if (symbol === 'NIFTY BANK' || symbol === 'NSEBANK') querySymbol = '^NSEBANK';
 
         let result;
 
@@ -365,7 +405,8 @@ export class StocksService {
 
         const price = result.price?.regularMarketPrice;
         const previousClose = result.price?.regularMarketPreviousClose;
-        const effectivePrice = price || previousClose;
+        // CRITICAL FIX: Do not overwrite with null/0 if we have an existing valid price
+        const effectivePrice = price || previousClose || stock?.currentPrice || 0;
 
         const changes = result.price?.regularMarketChangePercent;
         const marketCap = result.summaryDetail?.marketCap;
@@ -394,9 +435,12 @@ export class StocksService {
         const ebitda = result.financialData?.ebitda;
         const quickRatio = result.financialData?.quickRatio;
 
+        const chgPercent = changes !== undefined ? (changes * 100) : (stock?.changePercent || 0);
+        const changeValue = (effectivePrice * (chgPercent / 100)) / (1 + (chgPercent / 100));
+
         const dataToUpdate = {
           currentPrice: effectivePrice,
-          changePercent: changes !== undefined ? changes * 100 : 0,
+          changePercent: chgPercent,
           marketCap: marketCap,
           peRatio: pe,
           pbRatio: pb,
@@ -425,7 +469,6 @@ export class StocksService {
           lastUpdated: new Date(),
         };
 
-        console.log(`Upserting ${symbol} with price: ${effectivePrice}`);
         const updatedStock = await this.prisma.stock.upsert({
           where: { symbol },
           update: dataToUpdate,
@@ -439,7 +482,12 @@ export class StocksService {
           },
           include: { investorStocks: { include: { investor: true } }, financials: true },
         });
-        return updatedStock;
+
+        // Return with calculated absolute change
+        return {
+          ...updatedStock,
+          change: changeValue
+        };
       } catch (error) {
         console.error(`Failed to fetch data via Yahoo for ${symbol}:`, error);
 
@@ -497,12 +545,16 @@ export class StocksService {
             where: { symbol },
             data: { lastUpdated: new Date() },
           });
-          return stock;
+          const chgPercent = stock.changePercent || 0;
+          const changeValue = ((stock.currentPrice || 0) * (chgPercent / 100)) / (1 + (chgPercent / 100));
+          return { ...stock, change: changeValue };
         }
       }
     }
 
-    return stock;
+    const chgPercent = stock?.changePercent || 0;
+    const changeValue = ((stock?.currentPrice || 0) * (chgPercent / 100)) / (1 + (chgPercent / 100));
+    return { ...stock, change: changeValue };
   }
 
   async updateEarnings(symbol: string) {
@@ -1057,8 +1109,15 @@ export class StocksService {
         });
       }
 
-      // 5. Return current DB data immediately (Sub-second response)
-      return dbStocks;
+      // 5. Return current DB data immediately with calculated change
+      return dbStocks.map(stock => {
+        const chgPercent = stock.changePercent || 0;
+        const changeValue = ((stock.currentPrice || 0) * (chgPercent / 100)) / (1 + (chgPercent / 100));
+        return {
+          ...stock,
+          change: changeValue
+        };
+      });
     } catch (error) {
       console.error('Market summary fetch failed:', error);
       return [];
@@ -1196,31 +1255,68 @@ export class StocksService {
 
   async getStockNews(symbol: string) {
     try {
-      const yahooFinance = await this.getYahooClient();
+      const stock = await this.prisma.stock.findUnique({
+        where: { symbol },
+        select: { companyName: true },
+      });
 
-      let query = symbol;
-      // Improve search relevance for Indian stocks
-      if (symbol.endsWith('.NS')) {
-        query = symbol.replace('.NS', '');
-      }
+      const companyName = stock?.companyName || symbol.replace('.NS', '').replace('.BO', '');
+      const queries = [
+        `${companyName} stock news`,
+        `${symbol} stock`,
+      ];
 
-      console.log(`Fetching specific news for ${query} (${symbol})...`);
-      const result = await yahooFinance.search(query, { newsCount: 10 });
+      console.log(`Fetching relevant news for ${companyName} (${symbol})...`);
 
-      if (!result.news || result.news.length === 0) {
-        // Fallback: Try searching with "Stock" appended or full company name if available (would need lookup)
-        // For now, let's return []
-        return [];
+      const allItems: any[] = [];
+      const titles = new Set<string>();
+
+      for (const q of queries) {
+        try {
+          const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-IN&gl=IN&ceid=IN:en`;
+          const feed = await this.parser.parseURL(url);
+
+          if (feed.items) {
+            for (const item of feed.items) {
+              const title = item.title?.split(' - ')[0] || item.title || '';
+              const normalizedTitle = title.toLowerCase().trim();
+
+              if (!titles.has(normalizedTitle)) {
+                titles.add(normalizedTitle);
+                allItems.push({
+                  uuid: item.link || Math.random().toString(36).substring(7),
+                  title: title,
+                  link: item.link,
+                  contentSnippet: item.contentSnippet || item.content || '',
+                  publisher: item.title?.split(' - ').pop() || 'News',
+                  providerPublishTime: item.pubDate ? new Date(item.pubDate) : new Date(),
+                });
+              }
+            }
+          }
+        } catch (e) {
+          console.warn(`Failed to fetch RSS for query "${q}":`, e.message);
+        }
       }
 
       // Sort by time
-      const news = result.news.sort(
+      const news = allItems.sort(
         (a: any, b: any) =>
-          new Date(b.providerPublishTime).getTime() -
-          new Date(a.providerPublishTime).getTime(),
+          b.providerPublishTime.getTime() - a.providerPublishTime.getTime(),
       );
 
-      return news;
+      // limit to 15 items
+      const finalNews = news.slice(0, 15);
+
+      if (finalNews.length > 0) {
+        return finalNews;
+      }
+
+      // Fallback to Yahoo Finance Search
+      console.log(`Fallback to Yahoo Search for ${symbol}...`);
+      const yahooFinance = await this.getYahooClient();
+      const result = await yahooFinance.search(companyName, { newsCount: 10 });
+      return result.news || [];
     } catch (error) {
       console.error(`Failed to fetch news for ${symbol}:`, error);
       return [];
@@ -1304,33 +1400,53 @@ export class StocksService {
   async getTrending() {
     const symbols = ['RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'INFY.NS'];
     try {
-      const yahooFinance = await this.getYahooClient();
+      const fyersSymbols = symbols.map(s => SymbolMapper.toFyers(s));
+      const fyersQuotes = await this.fyersService.getQuotes(fyersSymbols);
 
       const results = await Promise.all(
         symbols.map(async (symbol) => {
           try {
-            // Check DB first for fresh data to save API calls
+            const fyersSymbol = SymbolMapper.toFyers(symbol);
+            const fyersQuote = fyersQuotes?.find((q: any) => q.n === fyersSymbol || q.s === fyersSymbol);
+
+            // Check DB first for metadata preservation
             const dbStock = await this.prisma.stock.findUnique({
               where: { symbol },
             });
-            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
-            if (dbStock && dbStock.lastUpdated > fiveMinutesAgo) {
-              return dbStock;
+            if (fyersQuote) {
+              const price = fyersQuote.lp || fyersQuote.v?.lp || 0;
+              const changePercent = fyersQuote.chp || fyersQuote.v?.chp || 0;
+
+              const dataToUpdate = {
+                currentPrice: price,
+                changePercent: changePercent,
+                lastUpdated: new Date(),
+              };
+
+              return await this.prisma.stock.upsert({
+                where: { symbol },
+                update: dataToUpdate,
+                create: {
+                  symbol,
+                  companyName: dbStock?.companyName || symbol,
+                  exchange: 'NSE',
+                  ...dataToUpdate,
+                },
+              });
             }
 
-            // Fetch live
+            // Fallback to Yahoo if Fyers quote is missing
+            const yahooFinance = await this.getYahooClient();
             const data = await yahooFinance.quoteSummary(symbol, {
               modules: ['price', 'summaryDetail', 'defaultKeyStatistics'],
             });
 
-            if (!data || !data.price) return null;
+            if (!data || !data.price) return dbStock || null;
 
             const price = data.price.regularMarketPrice;
-            const changePercent =
-              (data.price.regularMarketChangePercent || 0) * 100;
+            const changePercent = (data.price.regularMarketChangePercent || 0) * 100;
 
-            // Update DB
             const dataToUpdate = {
               currentPrice: price,
               changePercent: changePercent,
@@ -1353,12 +1469,7 @@ export class StocksService {
               },
             });
           } catch (e) {
-            if (e instanceof Error && e.message.includes('Quote not found')) {
-              // Suppress annoying log
-              // console.warn(`Quote not found for ${symbol}, skipping.`);
-            } else {
-              console.error(`Error fetching ${symbol}`, e);
-            }
+            console.error(`Error fetching ${symbol}`, e);
             return null;
           }
         }),
@@ -1375,44 +1486,36 @@ export class StocksService {
       // Use findOne to leverage DB caching + auto-update logic
       let nifty = await this.findOne('NIFTY 50');
       let sensex = await this.findOne('SENSEX');
+      let banknifty = await this.findOne('NIFTY BANK');
 
-      // CRITICAL FALLBACK: If DB is empty AND Yahoo fails (429), return static data
-      // This ensures the Home Page Ticker is NEVER empty.
-      if (!nifty) {
-        nifty = {
-          symbol: 'NIFTY 50',
-          currentPrice: 24500.0,
-          changePercent: 0.5,
-          // minimal fields to satisfy the map below
-        } as any;
-      }
-      if (!sensex) {
-        sensex = {
-          symbol: 'SENSEX',
-          currentPrice: 80500.0,
-          changePercent: 0.6,
-        } as any;
-      }
+      // CRITICAL FALLBACK: If DB is empty AND Yahoo fails, return static data
+      if (!nifty) nifty = { symbol: 'NIFTY 50', currentPrice: 25700, changePercent: 0 } as any;
+      if (!sensex) sensex = { symbol: 'SENSEX', currentPrice: 82800, changePercent: 0 } as any;
+      if (!banknifty) banknifty = { symbol: 'NIFTY BANK', currentPrice: 53000, changePercent: 0 } as any;
 
-      const results = [nifty, sensex];
+      const results = [nifty, sensex, banknifty];
 
       // Transform to match frontend expectation
-      return results.map((index: any) => ({
-        symbol: index.symbol,
-        price: index.currentPrice,
-        // Calculate approx change value since we only store percent
-        change:
-          index.currentPrice -
-          index.currentPrice / (1 + index.changePercent / 100),
-        changePercent: index.changePercent,
-      }));
+      return results.map((index: any) => {
+        let symbol = index.symbol;
+        if (symbol === '^NSEI' || symbol === 'NIFTY 50') symbol = 'NIFTY 50';
+        if (symbol === '^BSESN' || symbol === 'SENSEX') symbol = 'SENSEX';
+        if (symbol === '^NSEBANK' || symbol === 'NIFTY BANK' || symbol === 'NSEBANK') symbol = 'NIFTY BANK';
+
+        return {
+          symbol,
+          price: index.currentPrice || 0,
+          change: index.change || 0,
+          changePercent: index.changePercent || 0,
+        };
+      });
     } catch (error) {
       console.error('Failed to get indices', error);
       return [];
     }
   }
 
-  async getHistory(symbol: string, range: '1d' | '1mo' | '3mo' | '1y' = '1mo') {
+  async getHistory(symbol: string, range: '1d' | '1w' | '1mo' | '3mo' | '1y' = '1mo') {
     try {
       const yahooFinance = await this.getYahooClient();
 
@@ -1435,9 +1538,54 @@ export class StocksService {
 
       switch (range) {
         case '1d':
-          // Widen the net to catch weekends/holidays. We filter later.
+          // Attempt Fyers for high-resolution intraday (1 min)
+          const fyersSymbol1d = SymbolMapper.toFyers(symbol);
+          const today1d = new Date().toISOString().split('T')[0];
+          const yesterday1d = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+          const fyersHistory1d = await this.fyersService.getHistory(fyersSymbol1d, '1', yesterday1d, today1d);
+
+          if (fyersHistory1d && fyersHistory1d.length > 0) {
+            console.log(`[History] Using Fyers (1m) for ${symbol} 1d view. Points: ${fyersHistory1d.length}`);
+            // Fyers returns array: [timestamp, open, high, low, close, volume]
+            return fyersHistory1d.map((c: any) => ({
+              date: new Date(c[0] * 1000).toISOString(),
+              price: c[4], // close
+              open: c[1],
+              high: c[2],
+              low: c[3],
+              volume: c[5]
+            }));
+          }
+
+          // Fallback to Yahoo 15m (Standard)
           fromDate.setDate(now.getDate() - 7);
-          queryOptions.interval = '15m'; // Intraday
+          queryOptions.interval = '15m';
+          break;
+        case '1w':
+          // Fyers 5-min resolution for 1 week
+          const fyersSymbol1w = SymbolMapper.toFyers(symbol);
+          const today1w = new Date().toISOString().split('T')[0];
+          const weekAgo1w = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+          const fyersHistory1w = await this.fyersService.getHistory(fyersSymbol1w, '5', weekAgo1w, today1w);
+
+          if (fyersHistory1w && fyersHistory1w.length > 0) {
+            console.log(`[History] Using Fyers (5m) for ${symbol} 1w view. Points: ${fyersHistory1w.length}`);
+            // Fyers returns array: [timestamp, open, high, low, close, volume]
+            return fyersHistory1w.map((c: any) => ({
+              date: new Date(c[0] * 1000).toISOString(),
+              price: c[4], // close
+              open: c[1],
+              high: c[2],
+              low: c[3],
+              volume: c[5]
+            }));
+          }
+
+          // Fallback to Yahoo 1h
+          fromDate.setDate(now.getDate() - 7);
+          queryOptions.interval = '1h';
           break;
         case '1mo':
           fromDate.setMonth(now.getMonth() - 1);

@@ -12,10 +12,14 @@ import { ScrapeController } from '../controllers/scrape.controller';
 import { BseScraperService } from '../services/bse-scraper.service';
 
 import { YahooFinanceService } from './yahoo-finance.service';
+import { FyersService } from './fyers.service';
+import { FyersController } from './fyers.controller';
+import { StocksGateway } from './stocks.gateway';
+import { FyersSocketService } from './fyers-socket.service';
 
 @Module({
   imports: [PrismaModule, ConfigModule],
-  controllers: [StocksController, StockOfTheWeekController, VerdictsController, ScrapeController],
+  controllers: [StocksController, StockOfTheWeekController, VerdictsController, ScrapeController, FyersController],
   providers: [
     StocksService,
     StockOfTheWeekService,
@@ -23,7 +27,10 @@ import { YahooFinanceService } from './yahoo-finance.service';
     AIConfigService,
     BseScraperService,
     YahooFinanceService,
+    FyersService,
+    StocksGateway,
+    FyersSocketService,
   ],
-  exports: [StocksService, AIConfigService, YahooFinanceService],
+  exports: [StocksService, AIConfigService, YahooFinanceService, FyersService],
 })
 export class StocksModule { }
