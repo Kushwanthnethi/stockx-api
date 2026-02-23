@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { YahooFinanceService } from './yahoo-finance.service';
 import { FyersService } from './fyers.service';
@@ -14,6 +14,7 @@ import Parser = require('rss-parser');
 @Injectable()
 export class StocksService {
   private parser = new Parser();
+  private readonly logger = new Logger(StocksService.name);
   constructor(
     private prisma: PrismaService,
     private yahooFinanceService: YahooFinanceService,
@@ -207,7 +208,7 @@ export class StocksService {
         const results = [];
         for (const symbol of symbols) {
           const fyersSym = SymbolMapper.toFyers(symbol);
-          const q = fyersQuotes.find(fq => fq.n === fyersSym || fq.v?.n === fyersSym);
+          const q = fyersQuotes.find((fq: any) => fq.n === fyersSym || fq.v?.n === fyersSym);
 
           if (q) {
             const price = q.lp || q.v?.lp || q.iv;
