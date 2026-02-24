@@ -9,3 +9,14 @@ export class SyncPortfolioDto {
         insights: any;
     };
 }
+
+export class AddHoldingDto {
+    symbol: string;
+    quantity: number;
+    averageBuyPrice: number;
+}
+
+export class UpdateHoldingDto {
+    quantity?: number;
+    averageBuyPrice?: number;
+}
