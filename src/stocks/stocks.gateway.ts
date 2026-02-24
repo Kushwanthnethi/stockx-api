@@ -42,27 +42,41 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @SubscribeMessage('subscribeStock')
     handleSubscribe(client: Socket, symbol: string) {
         if (!symbol) return;
-        this.logger.log(`Client ${client.id} subscribing to ${symbol}`);
+
+        // Normalize symbol (RELIANCE -> RELIANCE.NS)
+        let normalizedSymbol = symbol.toUpperCase();
+        if (!normalizedSymbol.includes('.') && !normalizedSymbol.startsWith('^')) {
+            normalizedSymbol = `${normalizedSymbol}.NS`;
+        }
+
+        this.logger.log(`Client ${client.id} subscribing to ${normalizedSymbol}`);
 
         if (!this.subscribedSymbols.has(client.id)) {
             this.subscribedSymbols.set(client.id, new Set());
         }
-        this.subscribedSymbols.get(client.id)?.add(symbol);
+        this.subscribedSymbols.get(client.id)?.add(normalizedSymbol);
 
-        client.join(`stock_${symbol}`);
-        return { event: 'subscribed', data: symbol };
+        client.join(`stock_${normalizedSymbol}`);
+        return { event: 'subscribed', data: normalizedSymbol };
     }
 
     @SubscribeMessage('unsubscribeStock')
     handleUnsubscribe(client: Socket, symbol: string) {
-        this.logger.log(`Client ${client.id} unsubscribing from ${symbol}`);
+        if (!symbol) return;
 
-        if (this.subscribedSymbols.has(client.id)) {
-            this.subscribedSymbols.get(client.id)?.delete(symbol);
+        let normalizedSymbol = symbol.toUpperCase();
+        if (!normalizedSymbol.includes('.') && !normalizedSymbol.startsWith('^')) {
+            normalizedSymbol = `${normalizedSymbol}.NS`;
         }
 
-        client.leave(`stock_${symbol}`);
-        return { event: 'unsubscribed', data: symbol };
+        this.logger.log(`Client ${client.id} unsubscribing from ${normalizedSymbol}`);
+
+        if (this.subscribedSymbols.has(client.id)) {
+            this.subscribedSymbols.get(client.id)?.delete(normalizedSymbol);
+        }
+
+        client.leave(`stock_${normalizedSymbol}`);
+        return { event: 'unsubscribed', data: normalizedSymbol };
     }
 
     sendPriceUpdate(symbol: string, data: any) {

@@ -1,0 +1,188 @@
+DIAGNOSING: INFY.NS
+
+=== financialData ===
+  maxAge: 86400
+  currentPrice: 1327.5
+  targetHighPrice: 2076
+  targetLowPrice: 1414
+  targetMeanPrice: 1779.0227
+  targetMedianPrice: 1810
+  recommendationMean: 1.77778
+  recommendationKey: "buy"
+  numberOfAnalystOpinions: 44
+  totalCash: 2984999936
+  totalCashPerShare: 0.738
+  ebitda: 4380499968
+  totalDebt: 978000000
+  quickRatio: 1.564
+  currentRatio: 1.812
+  totalRevenue: 19847000064
+  debtToEquity: 10.531
+  revenuePerShare: 4.798
+  returnOnAssets: 0.15672
+  returnOnEquity: 0.32683
+  grossProfits: 5825999872
+  freeCashflow: 3137812480
+  operatingCashflow: 4078000128
+  earningsGrowth: -0.053
+  revenueGrowth: 0.032
+  grossMargins: 0.29354998
+  ebitdaMargins: 0.22071
+  operatingMargins: 0.18023
+  profitMargins: 0.16153999
+  financialCurrency: "USD"
+
+=== defaultKeyStatistics ===
+  maxAge: 1
+  priceHint: 2
+  enterpriseValue: 5368691818496
+  forwardPE: 17.423656
+  profitMargins: 0.16153999
+  floatShares: 3444049875
+  sharesOutstanding: 4045690377
+  heldPercentInsiders: 0.16073999
+  heldPercentInstitutions: 0.48589
+  beta: 0.26
+  impliedSharesOutstanding: 4045690378
+  bookValue: 207.05925
+  priceToBook: 6.411208
+  lastFiscalYearEnd: "2025-03-31T00:00:00.000Z"
+  nextFiscalYearEnd: "2026-03-31T00:00:00.000Z"
+  mostRecentQuarter: "2025-12-31T00:00:00.000Z"
+  earningsQuarterlyGrowth: -0.071
+  netIncomeToCommon: 3206000128
+  trailingEps: 69.69
+  forwardEps: 76.18952
+  lastSplitFactor: "2:1"
+  lastSplitDate: 1536019200
+  enterpriseToRevenue: 270.504
+  enterpriseToEbitda: 1225.589
+  52WeekChange: -0.23292333
+  SandP52WeekChange: 0.15480888
+  lastDividendValue: 23
+  lastDividendDate: "2025-10-27T00:00:00.000Z"
+
+=== incomeStatementHistory ===
+Count: 4
+
+  --- Statement 0 ---
+    maxAge: 1
+    endDate: "2025-03-31T00:00:00.000Z"
+    totalRevenue: 1629900000000
+    costOfRevenue: 0
+    grossProfit: 0
+    researchDevelopment: null
+    sellingGeneralAdministrative: null
+    nonRecurring: null
+    otherOperatingExpenses: null
+    totalOperatingExpenses: 0
+    operatingIncome: null
+    totalOtherIncomeExpenseNet: null
+    ebit: 0
+    interestExpense: null
+    incomeBeforeTax: null
+    incomeTaxExpense: 0
+    minorityInterest: null
+    netIncomeFromContinuingOps: null
+    discontinuedOperations: null
+    extraordinaryItems: null
+    effectOfAccountingCharges: null
+    otherItems: null
+    netIncome: 267130000000
+    netIncomeApplicableToCommonShares: null
+
+  --- Statement 1 ---
+    maxAge: 1
+    endDate: "2024-03-31T00:00:00.000Z"
+    totalRevenue: 1536700000000
+    costOfRevenue: 0
+    grossProfit: 0
+    researchDevelopment: null
+    sellingGeneralAdministrative: null
+    nonRecurring: null
+    otherOperatingExpenses: null
+    totalOperatingExpenses: 0
+    operatingIncome: null
+    totalOtherIncomeExpenseNet: null
+    ebit: 0
+    interestExpense: null
+    incomeBeforeTax: null
+    incomeTaxExpense: 0
+    minorityInterest: null
+    netIncomeFromContinuingOps: null
+    discontinuedOperations: null
+    extraordinaryItems: null
+    effectOfAccountingCharges: null
+    otherItems: null
+    netIncome: 262330000000
+    netIncomeApplicableToCommonShares: null
+
+  --- Statement 2 ---
+    maxAge: 1
+    endDate: "2023-03-31T00:00:00.000Z"
+    totalRevenue: 1467670000000
+    costOfRevenue: 0
+    grossProfit: 0
+    researchDevelopment: null
+    sellingGeneralAdministrative: null
+    nonRecurring: null
+    otherOperatingExpenses: null
+    totalOperatingExpenses: 0
+    operatingIncome: null
+    totalOtherIncomeExpenseNet: null
+    ebit: 0
+    interestExpense: null
+    incomeBeforeTax: null
+    incomeTaxExpense: 0
+    minorityInterest: null
+    netIncomeFromContinuingOps: null
+    discontinuedOperations: null
+    extraordinaryItems: null
+    effectOfAccountingCharges: null
+    otherItems: null
+    netIncome: 240950000000
+    netIncomeApplicableToCommonShares: null
+
+  --- Statement 3 ---
+    maxAge: 1
+    endDate: "2022-03-31T00:00:00.000Z"
+    totalRevenue: 1216410000000
+    costOfRevenue: 0
+    grossProfit: 0
+    researchDevelopment: null
+    sellingGeneralAdministrative: null
+    nonRecurring: null
+    otherOperatingExpenses: null
+    totalOperatingExpenses: 0
+    operatingIncome: null
+    totalOtherIncomeExpenseNet: null
+    ebit: 0
+    interestExpense: null
+    incomeBeforeTax: null
+    incomeTaxExpense: 0
+    minorityInterest: null
+    netIncomeFromContinuingOps: null
+    discontinuedOperations: null
+    extraordinaryItems: null
+    effectOfAccountingCharges: null
+    otherItems: null
+    netIncome: 221100000000
+    netIncomeApplicableToCommonShares: null
+
+=== balanceSheetHistory ===
+Count: 4
+
+  --- Latest (index 0) ---
+    maxAge: 1
+    endDate: "2025-03-31T00:00:00.000Z"
+
+=== cashflowStatementHistory ===
+Count: 4
+
+  --- Latest (index 0) ---
+    maxAge: 1
+    endDate: "2025-03-31T00:00:00.000Z"
+    netIncome: 267130000000
+
+=== fundamentalsTimeSeries ===
+  TIME SERIES ERROR: yahooFinance.options called with invalid options.

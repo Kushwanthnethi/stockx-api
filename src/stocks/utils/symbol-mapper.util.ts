@@ -1,22 +1,31 @@
 export class SymbolMapper {
     static toFyers(yahooSymbol: string): string {
         if (!yahooSymbol) return '';
+
+        // Normalize for mapping logic (RELIANCE -> RELIANCE.NS)
+        let sym = yahooSymbol.toUpperCase();
+
         // Indices mapping
-        if (yahooSymbol === '^NSEI' || yahooSymbol === 'NIFTY 50') return 'NSE:NIFTY50-INDEX';
-        if (yahooSymbol === '^BSESN' || yahooSymbol === 'SENSEX') return 'BSE:SENSEX-INDEX';
-        if (yahooSymbol === '^NSEBANK' || yahooSymbol === 'NSEBANK' || yahooSymbol === 'NIFTY BANK') return 'NSE:NIFTYBANK-INDEX';
+        if (sym === '^NSEI' || sym === 'NIFTY 50') return 'NSE:NIFTY50-INDEX';
+        if (sym === '^BSESN' || sym === 'SENSEX') return 'BSE:SENSEX-INDEX';
+        if (sym === '^NSEBANK' || sym === 'NSEBANK' || sym === 'NIFTY BANK') return 'NSE:NIFTYBANK-INDEX';
+
+        // Add suffix if missing (default to NSE)
+        if (!sym.includes('.') && !sym.startsWith('^')) {
+            sym = `${sym}.NS`;
+        }
 
         // NSE Stocks (default to EQ)
-        if (yahooSymbol.endsWith('.NS')) {
-            return `NSE:${yahooSymbol.replace('.NS', '')}-EQ`;
+        if (sym.endsWith('.NS')) {
+            return `NSE:${sym.replace('.NS', '')}-EQ`;
         }
 
         // BSE Stocks
-        if (yahooSymbol.endsWith('.BO')) {
-            return `BSE:${yahooSymbol.replace('.BO', '')}-EQ`;
+        if (sym.endsWith('.BO')) {
+            return `BSE:${sym.replace('.BO', '')}-EQ`;
         }
 
-        return yahooSymbol;
+        return sym;
     }
 
     static fromFyers(fyersSymbol: string): string {

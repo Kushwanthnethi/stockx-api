@@ -2,19 +2,23 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 // @ts-ignore
 import { fyersModel } from 'fyers-api-v3';
-import * as fs from 'fs';
-import * as path from 'path';
+import { PrismaService } from '../prisma/prisma.service';
+
+const FYERS_TOKEN_KEY = 'fyers_access_token';
 
 @Injectable()
 export class FyersService implements OnModuleInit {
     private readonly logger = new Logger(FyersService.name);
     private accessToken: string | null = null;
-    private readonly tokenFilePath = path.join(process.cwd(), 'fyers_token.json');
+    private tokenLoadedOnce = false; // Suppress repeated "expired" warnings
 
-    constructor(private configService: ConfigService) { }
+    constructor(
+        private configService: ConfigService,
+        private prisma: PrismaService,
+    ) { }
 
-    onModuleInit() {
-        this.loadTokenFromFile();
+    async onModuleInit() {
+        await this.loadTokenFromDb();
     }
 
     getLoginUrl(): string {
@@ -44,7 +48,9 @@ export class FyersService implements OnModuleInit {
             if (response.s === 'ok' && response.access_token) {
                 const token = response.access_token;
                 this.accessToken = token;
-                this.saveTokenToFile(token);
+                this.tokenLoadedOnce = true;
+                await this.saveTokenToDb(token);
+                this.logger.log('✅ Fyers token activated and saved to database.');
                 return token;
             } else {
                 throw new Error(response.message || 'Failed to generate access token');
@@ -57,7 +63,7 @@ export class FyersService implements OnModuleInit {
 
     async getAccessToken(): Promise<string | null> {
         if (!this.accessToken) {
-            this.loadTokenFromFile();
+            await this.loadTokenFromDb();
         }
         return this.accessToken;
     }
@@ -105,32 +111,58 @@ export class FyersService implements OnModuleInit {
         }
     }
 
-    private saveTokenToFile(token: string) {
+    private async saveTokenToDb(token: string) {
         try {
-            fs.writeFileSync(this.tokenFilePath, JSON.stringify({ access_token: token, date: new Date().toISOString() }));
-            this.logger.log('Fyers token saved to file.');
+            const data = JSON.stringify({
+                access_token: token,
+                date: new Date().toISOString(),
+            });
+            await this.prisma.appConfig.upsert({
+                where: { key: FYERS_TOKEN_KEY },
+                update: { value: data },
+                create: { key: FYERS_TOKEN_KEY, value: data },
+            });
+            this.logger.log('Fyers token persisted to database.');
         } catch (error) {
-            this.logger.error('Failed to save Fyers token to file:', error.message);
+            this.logger.error('Failed to save Fyers token to database:', error.message);
         }
     }
 
-    private loadTokenFromFile() {
-        if (fs.existsSync(this.tokenFilePath)) {
-            try {
-                const data = JSON.parse(fs.readFileSync(this.tokenFilePath, 'utf8'));
-                const tokenDate = new Date(data.date);
-                const now = new Date();
+    private async loadTokenFromDb() {
+        try {
+            const record = await this.prisma.appConfig.findUnique({
+                where: { key: FYERS_TOKEN_KEY },
+            });
 
-                // Check if token is from today (Fyers tokens are valid for one day)
-                if (tokenDate.toDateString() === now.toDateString()) {
-                    this.accessToken = data.access_token;
-                    this.logger.log('Loaded active Fyers token from file.');
-                } else {
-                    this.logger.warn('Saved Fyers token is expired.');
+            if (!record) {
+                if (!this.tokenLoadedOnce) {
+                    this.logger.warn('No Fyers token found in database. Please authenticate.');
+                    this.tokenLoadedOnce = true;
                 }
-            } catch (error) {
-                this.logger.error('Failed to load Fyers token from file:', error.message);
+                return;
             }
+
+            const data = JSON.parse(record.value);
+            const tokenDate = new Date(data.date);
+            const now = new Date();
+
+            // Use UTC dates for comparison (Fyers tokens are valid for one calendar day IST)
+            // Convert both to IST (UTC+5:30) for accurate "same day" check
+            const istOffset = 5.5 * 60 * 60 * 1000;
+            const tokenDayIST = new Date(tokenDate.getTime() + istOffset).toDateString();
+            const nowDayIST = new Date(now.getTime() + istOffset).toDateString();
+
+            if (tokenDayIST === nowDayIST) {
+                this.accessToken = data.access_token;
+                this.logger.log('Loaded active Fyers token from database.');
+            } else {
+                if (!this.tokenLoadedOnce) {
+                    this.logger.warn('Saved Fyers token is expired (from a previous day). Please re-authenticate.');
+                    this.tokenLoadedOnce = true;
+                }
+            }
+        } catch (error) {
+            this.logger.error('Failed to load Fyers token from database:', error.message);
         }
     }
 }

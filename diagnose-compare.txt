@@ -1,0 +1,340 @@
+
+============================================================
+DIAGNOSING: RELIANCE.NS
+============================================================
+
+--- financialData (pre-computed ratios) ---
+  returnOnEquity: ❌ MISSING
+  returnOnAssets: ❌ MISSING
+  grossMargins: 0.35777
+  operatingMargins: 0.11852
+  profitMargins: 0.08122
+  ebitda: 1684509949952
+  totalDebt: 3745930018816
+  totalCash: 2238710022144
+  totalRevenue: 10245479858176
+  revenueGrowth: 0.104
+  earningsGrowth: 0.006
+  currentRatio: ❌ MISSING
+  quickRatio: ❌ MISSING
+  debtToEquity: 35.651
+  operatingCashflow: ❌ MISSING
+  freeCashflow: ❌ MISSING
+  financialCurrency: "INR"
+
+--- defaultKeyStatistics ---
+  sharesOutstanding: 13532472634
+  bookValue: 648.12
+  priceToBook: 2.2032957
+  trailingEps: 61.46
+  forwardEps: 65.97559
+  enterpriseValue: 22563214327808
+  enterpriseToRevenue: 2.202
+  enterpriseToEbitda: 13.395
+  earningsQuarterlyGrowth: 0.006
+  netIncomeToCommon: 832110002176
+
+--- summaryDetail ---
+  marketCap: 19324370681856
+  trailingPE: 23.234625
+  dividendYield: 0.0039
+
+--- incomeStatementHistory ---
+  Count: 4
+    totalRevenue: ✅ 9646930000000
+    costOfRevenue: ⚠️ 0 (fake)
+    grossProfit: ⚠️ 0 (fake)
+    operatingIncome: ❌ null
+    ebit: ⚠️ 0 (fake)
+    netIncome: ✅ 352620000000
+    interestExpense: ❌ null
+    incomeTaxExpense: ⚠️ 0 (fake)
+
+--- balanceSheetHistory ---
+  Count: 4
+    totalAssets: ❌ null
+    totalCurrentAssets: ❌ null
+    totalCurrentLiabilities: ❌ null
+    totalStockholderEquity: ❌ null
+    inventory: ❌ null
+    cash: ❌ null
+    totalLiab: ❌ null
+
+--- cashflowStatementHistory ---
+  Count: 4
+    totalCashFromOperatingActivities: ❌ null
+    capitalExpenditures: ❌ null
+    netIncome: ✅ 352620000000
+    depreciation: ❌ null
+
+============================================================
+DIAGNOSING: INFY.NS
+============================================================
+
+--- financialData (pre-computed ratios) ---
+  returnOnEquity: 0.32683
+  returnOnAssets: 0.15672
+  grossMargins: 0.29354998
+  operatingMargins: 0.18023
+  profitMargins: 0.16153999
+  ebitda: 4380499968
+  totalDebt: 978000000
+  totalCash: 2984999936
+  totalRevenue: 19847000064
+  revenueGrowth: 0.032
+  earningsGrowth: -0.053
+  currentRatio: 1.812
+  quickRatio: 1.564
+  debtToEquity: 10.531
+  operatingCashflow: 4078000128
+  freeCashflow: 3137812480
+  financialCurrency: "USD"
+
+--- defaultKeyStatistics ---
+  sharesOutstanding: 4045690377
+  bookValue: 207.05925
+  priceToBook: 6.411208
+  trailingEps: 69.69
+  forwardEps: 76.18952
+  enterpriseValue: 5368691818496
+  enterpriseToRevenue: 270.504
+  enterpriseToEbitda: 1225.589
+  earningsQuarterlyGrowth: -0.071
+  netIncomeToCommon: 3206000128
+
+--- summaryDetail ---
+  marketCap: 5370653704192
+  trailingPE: 19.048643
+  dividendYield: 0.033299997
+
+--- incomeStatementHistory ---
+  Count: 4
+    totalRevenue: ✅ 1629900000000
+    costOfRevenue: ⚠️ 0 (fake)
+    grossProfit: ⚠️ 0 (fake)
+    operatingIncome: ❌ null
+    ebit: ⚠️ 0 (fake)
+    netIncome: ✅ 267130000000
+    interestExpense: ❌ null
+    incomeTaxExpense: ⚠️ 0 (fake)
+
+--- balanceSheetHistory ---
+  Count: 4
+    totalAssets: ❌ null
+    totalCurrentAssets: ❌ null
+    totalCurrentLiabilities: ❌ null
+    totalStockholderEquity: ❌ null
+    inventory: ❌ null
+    cash: ❌ null
+    totalLiab: ❌ null
+
+--- cashflowStatementHistory ---
+  Count: 4
+    totalCashFromOperatingActivities: ❌ null
+    capitalExpenditures: ❌ null
+    netIncome: ✅ 267130000000
+    depreciation: ❌ null
+
+============================================================
+DIAGNOSING: HDFCBANK.NS
+============================================================
+
+--- financialData (pre-computed ratios) ---
+  returnOnEquity: 0.14015001
+  returnOnAssets: 0.01749
+  grossMargins: 0
+  operatingMargins: 0.34794998
+  profitMargins: 0.26187
+  ebitda: ❌ MISSING
+  totalDebt: 6158335082496
+  totalCash: 1275910160384
+  totalRevenue: 2845330898944
+  revenueGrowth: 0.264
+  earningsGrowth: 0.115
+  currentRatio: ❌ MISSING
+  quickRatio: ❌ MISSING
+  debtToEquity: ❌ MISSING
+  operatingCashflow: ❌ MISSING
+  freeCashflow: ❌ MISSING
+  financialCurrency: "INR"
+
+--- defaultKeyStatistics ---
+  sharesOutstanding: 15388015439
+  bookValue: 367.081
+  priceToBook: 2.5160658
+  trailingEps: 44.77
+  forwardEps: 56.86667
+  enterpriseValue: 19312324640768
+  enterpriseToRevenue: 6.787
+  enterpriseToEbitda: ❌ MISSING
+  earningsQuarterlyGrowth: 0.122
+  netIncomeToCommon: 745100869632
+
+--- summaryDetail ---
+  marketCap: 14212370792448
+  trailingPE: 20.629885
+  dividendYield: 0.0121
+
+--- incomeStatementHistory ---
+  Count: 4
+    totalRevenue: ✅ 1683023700000
+    costOfRevenue: ⚠️ 0 (fake)
+    grossProfit: ⚠️ 0 (fake)
+    operatingIncome: ❌ null
+    ebit: ⚠️ 0 (fake)
+    netIncome: ✅ 707922500000
+    interestExpense: ❌ null
+    incomeTaxExpense: ⚠️ 0 (fake)
+
+--- balanceSheetHistory ---
+  Count: 4
+    totalAssets: ❌ null
+    totalCurrentAssets: ❌ null
+    totalCurrentLiabilities: ❌ null
+    totalStockholderEquity: ❌ null
+    inventory: ❌ null
+    cash: ❌ null
+    totalLiab: ❌ null
+
+--- cashflowStatementHistory ---
+  Count: 4
+    totalCashFromOperatingActivities: ❌ null
+    capitalExpenditures: ❌ null
+    netIncome: ✅ 707922500000
+    depreciation: ❌ null
+
+============================================================
+DIAGNOSING: TCS.NS
+============================================================
+
+--- financialData (pre-computed ratios) ---
+  returnOnEquity: 0.42635
+  returnOnAssets: 0.22512
+  grossMargins: 0.3968
+  operatingMargins: 0.25179002
+  profitMargins: 0.18295999
+  ebitda: 682080010240
+  totalDebt: 108210003968
+  totalCash: 567430021120
+  totalRevenue: 2608020062208
+  revenueGrowth: 0.049
+  earningsGrowth: -0.139
+  currentRatio: 2.525
+  quickRatio: 2.297
+  debtToEquity: 9.444
+  operatingCashflow: 527269986304
+  freeCashflow: 361180004352
+  financialCurrency: "INR"
+
+--- defaultKeyStatistics ---
+  sharesOutstanding: 3618087518
+  bookValue: 313.727
+  priceToBook: 8.530665
+  trailingEps: 131.89
+  forwardEps: 153.69695
+  enterpriseValue: 9234598068224
+  enterpriseToRevenue: 3.541
+  enterpriseToEbitda: 13.539
+  earningsQuarterlyGrowth: -0.139
+  netIncomeToCommon: 477160013824
+
+--- summaryDetail ---
+  marketCap: 9683087654912
+  trailingPE: 20.29191
+  dividendYield: 0.0235
+
+--- incomeStatementHistory ---
+  Count: 4
+    totalRevenue: ✅ 2553240000000
+    costOfRevenue: ⚠️ 0 (fake)
+    grossProfit: ⚠️ 0 (fake)
+    operatingIncome: ❌ null
+    ebit: ⚠️ 0 (fake)
+    netIncome: ✅ 485530000000
+    interestExpense: ❌ null
+    incomeTaxExpense: ⚠️ 0 (fake)
+
+--- balanceSheetHistory ---
+  Count: 4
+    totalAssets: ❌ null
+    totalCurrentAssets: ❌ null
+    totalCurrentLiabilities: ❌ null
+    totalStockholderEquity: ❌ null
+    inventory: ❌ null
+    cash: ❌ null
+    totalLiab: ❌ null
+
+--- cashflowStatementHistory ---
+  Count: 4
+    totalCashFromOperatingActivities: ❌ null
+    capitalExpenditures: ❌ null
+    netIncome: ✅ 485530000000
+    depreciation: ❌ null
+
+============================================================
+DIAGNOSING: ITC.NS
+============================================================
+
+--- financialData (pre-computed ratios) ---
+  returnOnEquity: ❌ MISSING
+  returnOnAssets: ❌ MISSING
+  grossMargins: 0.55942
+  operatingMargins: 0.32182
+  profitMargins: 0.43890998
+  ebitda: 269900972032
+  totalDebt: 3629700096
+  totalCash: 185599197184
+  totalRevenue: 798087184384
+  revenueGrowth: 0.067
+  earningsGrowth: 0
+  currentRatio: ❌ MISSING
+  quickRatio: ❌ MISSING
+  debtToEquity: 0.507
+  operatingCashflow: ❌ MISSING
+  freeCashflow: ❌ MISSING
+  financialCurrency: "INR"
+
+--- defaultKeyStatistics ---
+  sharesOutstanding: 12529229381
+  bookValue: 56.707
+  priceToBook: 5.7382684
+  trailingEps: 16.25
+  forwardEps: 16.80455
+  enterpriseValue: 3895869833216
+  enterpriseToRevenue: 4.882
+  enterpriseToEbitda: 14.434
+  earningsQuarterlyGrowth: -0.001
+  netIncomeToCommon: 203762597888
+
+--- summaryDetail ---
+  marketCap: 4077011337216
+  trailingPE: 20.024614
+  dividendYield: 0.043899998
+
+--- incomeStatementHistory ---
+  Count: 4
+    totalRevenue: ✅ 693235200000
+    costOfRevenue: ⚠️ 0 (fake)
+    grossProfit: ⚠️ 0 (fake)
+    operatingIncome: ❌ null
+    ebit: ⚠️ 0 (fake)
+    netIncome: ✅ 347466300000
+    interestExpense: ❌ null
+    incomeTaxExpense: ⚠️ 0 (fake)
+
+--- balanceSheetHistory ---
+  Count: 4
+    totalAssets: ❌ null
+    totalCurrentAssets: ❌ null
+    totalCurrentLiabilities: ❌ null
+    totalStockholderEquity: ❌ null
+    inventory: ❌ null
+    cash: ❌ null
+    totalLiab: ❌ null
+
+--- cashflowStatementHistory ---
+  Count: 4
+    totalCashFromOperatingActivities: ❌ null
+    capitalExpenditures: ❌ null
+    netIncome: ✅ 347466300000
+    depreciation: ❌ null
