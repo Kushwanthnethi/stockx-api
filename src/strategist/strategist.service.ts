@@ -152,6 +152,14 @@ Now produce your full CIO-grade report using EXACTLY the sections below. Do not 
 **Conviction Level:** High / Medium / Low
 **Conviction Score:** XX / 100
 
+CONVICTION SCORE CALIBRATION RULES (you MUST follow these):
+- 85–100: Exceptional business, clearly undervalued, strong growth visibility, low risk, technical tailwinds aligned. Reserve for rare opportunities.
+- 70–84: Strong business with good growth. Valuation reasonable. Moderate risk. Clear thesis. This is the typical BUY range.
+- 50–69: Mixed signals. Either growth is uncertain, valuation is stretched, or risks are elevated. This is the HOLD range.
+- 30–49: Business is weak, declining, or highly overvalued. Risks dominate. AVOID territory.
+- 0–29: Structural deterioration, regulatory threat, or severe overvaluation. Hard AVOID.
+DO NOT default to 60. Score honestly based on all data above.
+
 [One sentence explaining the primary driver of this verdict.]
 
 ---
