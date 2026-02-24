@@ -43,9 +43,11 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
     handleSubscribe(client: Socket, symbol: string) {
         if (!symbol) return;
 
-        // Normalize symbol (RELIANCE -> RELIANCE.NS)
+        // Normalize symbol (RELIANCE -> RELIANCE.NS, but keep NIFTY 50 as is)
         let normalizedSymbol = symbol.toUpperCase();
-        if (!normalizedSymbol.includes('.') && !normalizedSymbol.startsWith('^')) {
+        const isIndex = ['NIFTY 50', 'SENSEX', 'NIFTY BANK'].includes(normalizedSymbol) || normalizedSymbol.startsWith('^');
+
+        if (!normalizedSymbol.includes('.') && !isIndex) {
             normalizedSymbol = `${normalizedSymbol}.NS`;
         }
 
@@ -65,7 +67,9 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
         if (!symbol) return;
 
         let normalizedSymbol = symbol.toUpperCase();
-        if (!normalizedSymbol.includes('.') && !normalizedSymbol.startsWith('^')) {
+        const isIndex = ['NIFTY 50', 'SENSEX', 'NIFTY BANK'].includes(normalizedSymbol) || normalizedSymbol.startsWith('^');
+
+        if (!normalizedSymbol.includes('.') && !isIndex) {
             normalizedSymbol = `${normalizedSymbol}.NS`;
         }
 
@@ -84,9 +88,9 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const room = this.server.sockets.adapter.rooms.get(roomName);
         const count = room ? room.size : 0;
 
-        // if (symbol === 'NIFTY 50' || symbol === 'SENSEX' || symbol === 'NIFTY BANK') {
-        //     this.logger.log(`[Gateway] Emitting ${symbol} update to ${count} clients in room ${roomName}. Price: ${data.price}`);
-        // }
+        if (symbol === 'NIFTY 50' || symbol === 'SENSEX' || symbol === 'NIFTY BANK') {
+            this.logger.log(`[Gateway] Emitting ${symbol} update to ${count} clients in room ${roomName}. Price: ${data.price}`);
+        }
 
         this.server.to(roomName).emit('priceUpdate', data);
     }

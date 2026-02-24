@@ -387,7 +387,8 @@ export class StocksService {
 
         // Normalize symbol for Yahoo and DB consistency
         let querySymbol = symbol;
-        if (!symbol.includes('.') && !symbol.startsWith('^')) {
+        const isIndexName = ['NIFTY 50', 'SENSEX', 'NIFTY BANK'].includes(symbol.toUpperCase());
+        if (!symbol.includes('.') && !symbol.startsWith('^') && !isIndexName) {
           querySymbol = `${symbol}.NS`;
         }
 

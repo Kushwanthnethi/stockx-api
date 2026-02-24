@@ -30,9 +30,10 @@ export class SymbolMapper {
 
     static fromFyers(fyersSymbol: string): string {
         // Indices mapping (supports both canonical and friendly names from socket)
-        if (fyersSymbol === 'NSE:NIFTY50-INDEX' || fyersSymbol === 'Nifty 50') return 'NIFTY 50';
-        if (fyersSymbol === 'BSE:SENSEX-INDEX' || fyersSymbol === 'SENSEX') return 'SENSEX';
-        if (fyersSymbol === 'NSE:NIFTYBANK-INDEX' || fyersSymbol === 'Nifty Bank') return 'NIFTY BANK';
+        const upperFyers = fyersSymbol.toUpperCase();
+        if (upperFyers === 'NSE:NIFTY50-INDEX' || upperFyers === 'NIFTY 50' || upperFyers === 'NIFTY50') return 'NIFTY 50';
+        if (upperFyers === 'BSE:SENSEX-INDEX' || upperFyers === 'SENSEX') return 'SENSEX';
+        if (upperFyers === 'NSE:NIFTYBANK-INDEX' || upperFyers === 'NIFTY BANK' || upperFyers === 'NIFTYBANK') return 'NIFTY BANK';
 
         // Stock mapping (NSE:RELIANCE-EQ -> RELIANCE.NS)
         const match = fyersSymbol.match(/(NSE|BSE):(.+)-(EQ|INDEX)/);

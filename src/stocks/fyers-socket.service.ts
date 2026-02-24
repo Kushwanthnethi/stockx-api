@@ -80,14 +80,14 @@ export class FyersSocketService implements OnModuleInit {
 
     private handleMessage(message: any) {
         // ALWAYS LOG FULL JSON FOR DEBUG
-        // ALWAYS LOG FULL JSON FOR DEBUG
+        // this.logger.log(`[WebSocket] Message Received: ${JSON.stringify(message)}`);
         // Special: If the message is nested in 'data' array (seen in logs)
         if (Array.isArray(message.data)) {
             message.data.forEach((item: any) => this.handleMessage(item));
             return;
         }
 
-        // this.logger.log(`[WebSocket] Message: ${JSON.stringify(message)}`);
+        // this.logger.log(`[WebSocket] Handling Item: ${JSON.stringify(message)}`);
 
         // Fyers uses diverse symbols: n, symbol, s, tk (token), ts
         const fyersSymbol = message.n || message.symbol || message.s || message.tk || message.ts;
@@ -101,9 +101,9 @@ export class FyersSocketService implements OnModuleInit {
             // If mapping worked or it's a direct index name
             if (yahooSymbol) {
                 // DEBUG LOG for indices
-                // if (fyersSymbol.includes('INDEX') || ['Nifty 50', 'SENSEX', 'Nifty Bank'].includes(fyersSymbol)) {
-                //     this.logger.log(`[WebSocket] Index Update Matched: ${fyersSymbol} -> ${yahooSymbol} | Price: ${price} | Ch: ${message.ch || message.cng} | ChP: ${message.chp || message.nc}`);
-                // }
+                if (fyersSymbol.includes('INDEX') || ['NIFTY 50', 'SENSEX', 'NIFTY BANK', 'Nifty 50', 'Sensex', 'Nifty Bank'].includes(fyersSymbol)) {
+                    this.logger.log(`[WebSocket] Index Update Matched: ${fyersSymbol} -> ${yahooSymbol} | Price: ${price} | Ch: ${message.ch || message.cng} | ChP: ${message.chp || message.nc}`);
+                }
 
                 this.stocksGateway.sendPriceUpdate(yahooSymbol, {
                     price: price,
@@ -113,7 +113,8 @@ export class FyersSocketService implements OnModuleInit {
                 });
 
                 // Update Database for Indices to ensure freshness on refresh
-                if (fyersSymbol.includes('INDEX') || ['Nifty 50', 'SENSEX', 'Nifty Bank'].includes(fyersSymbol)) {
+                const isIndexFyers = fyersSymbol.includes('INDEX') || ['NIFTY 50', 'SENSEX', 'NIFTY BANK', 'Nifty 50', 'Sensex', 'Nifty Bank'].includes(fyersSymbol);
+                if (isIndexFyers) {
                     this.prisma.stock.update({
                         where: { symbol: yahooSymbol },
                         data: {
