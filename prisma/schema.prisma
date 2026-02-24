@@ -147,6 +147,24 @@ model Stock {
   revenueGrowth    Float?  @map("revenue_growth")
   ebitda           Float?
   quickRatio       Float?  @map("quick_ratio")
+  returnOnCapitalEmployed Float? @map("return_on_capital_employed")
+  interestCoverageRatio Float? @map("interest_coverage_ratio")
+  ocfRatio         Float?  @map("ocf_ratio")
+  bookValuePerShare Float?  @map("book_value_per_share")
+  evEbitda         Float?  @map("ev_ebitda")
+
+  // Comprehensive Fundamental Metrics
+  grossMargin          Float?  @map("gross_margin")
+  eps                  Float?  @map("eps")
+  fcfMargin            Float?  @map("fcf_margin")
+  cashFlowToDebt       Float?  @map("cash_flow_to_debt")
+  epsGrowth            Float?  @map("eps_growth")
+  pegRatio             Float?  @map("peg_ratio")
+  grahamNumber         Float?  @map("graham_number")
+  intrinsicValue       Float?  @map("intrinsic_value")
+  enterpriseValue      Float?  @map("enterprise_value")
+  operatingCashFlow    Float?  @map("operating_cash_flow")
+  capitalExpenditure   Float?  @map("capital_expenditure")
 
   lastUpdated   DateTime @default(now()) @map("last_updated")
   

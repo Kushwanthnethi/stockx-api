@@ -385,104 +385,64 @@ export class StocksService {
 
         const yahooFinance = await this.getYahooClient();
 
-        // Map safe-display names to Yahoo symbols if needed
+        // Normalize symbol for Yahoo and DB consistency
         let querySymbol = symbol;
-        if (symbol === 'NIFTY 50') querySymbol = '^NSEI';
-        if (symbol === 'SENSEX') querySymbol = '^BSESN';
-        if (symbol === 'NIFTY BANK' || symbol === 'NSEBANK') querySymbol = '^NSEBANK';
+        if (!symbol.includes('.') && !symbol.startsWith('^')) {
+          querySymbol = `${symbol}.NS`;
+        }
 
-        let result;
+        // 1. Initial lookup with normalized symbol
+        stock = await this.prisma.stock.findUnique({
+          where: { symbol: querySymbol },
+          include: { investorStocks: { include: { investor: true } }, financials: true },
+        });
 
-        // Logic to handle suffixes or default to NSE, then BSE
-        const hasSuffix =
-          querySymbol.includes('.') || querySymbol.startsWith('^');
+        // Try raw symbol if not found
+        if (!stock && querySymbol !== symbol) {
+          stock = await this.prisma.stock.findUnique({
+            where: { symbol },
+            include: { investorStocks: { include: { investor: true } }, financials: true },
+          });
+        }
 
-        // Indices (starting with ^) often lack financial data/stats, so we request fewer modules
+        const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+        const stockIsStale = !stock || stock.lastUpdated < fifteenMinutesAgo;
+
+        if (!stockIsStale) {
+          return stock;
+        }
+
+        let result: any;
         const isIndex = querySymbol.startsWith('^');
+
+        // Trimmed modules to avoid rate limits and bloat
         const modules = isIndex
           ? ['price', 'summaryDetail']
           : [
             'price',
-            'summaryDetail',
-            'defaultKeyStatistics',
-            'financialData',
-            'summaryProfile',
+            'summaryDetail', // For PE, Market Cap, Div Yield
+            'defaultKeyStatistics', // For PB, Book Value, Shares
+            'financialData', // For EBITDA, Margins, Debt, Quick/Current Ratio
+            'summaryProfile', // For Sector/Industry
+            'incomeStatementHistory',
+            'balanceSheetHistory',
+            'cashflowStatementHistory',
           ];
 
-        if (hasSuffix) {
-          try {
-            result = await yahooFinance.quoteSummary(querySymbol, {
-              modules,
-            });
-          } catch (e: any) {
-            console.log(
-              'quoteSummary failed/validated, trying quote() fallback for',
-              querySymbol,
-            );
+        // Fetch from Yahoo
+        try {
+          result = await yahooFinance.quoteSummary(querySymbol, { modules });
+        } catch (e: any) {
+          // Fallback to original symbol if querySymbol failed
+          if (querySymbol !== symbol) {
             try {
-              let simpleQuote = await yahooFinance.quote(querySymbol);
-              if (Array.isArray(simpleQuote)) simpleQuote = simpleQuote[0];
-              if (!simpleQuote) throw new Error('Quote returned empty');
-              result = {
-                price: {
-                  regularMarketPrice: simpleQuote.regularMarketPrice,
-                  regularMarketPreviousClose:
-                    simpleQuote.regularMarketPreviousClose,
-                  regularMarketChangePercent:
-                    simpleQuote.regularMarketChangePercent
-                      ? simpleQuote.regularMarketChangePercent / 100
-                      : 0,
-                  shortName: simpleQuote.shortName,
-                  exchangeName: simpleQuote.exchange,
-                  currency: simpleQuote.currency,
-                },
-                summaryDetail: {
-                  marketCap: simpleQuote.marketCap,
-                  fiftyTwoWeekHigh: simpleQuote.fiftyTwoWeekHigh,
-                  fiftyTwoWeekLow: simpleQuote.fiftyTwoWeekLow,
-                  trailingPE: simpleQuote.trailingPE,
-                  dividendYield: simpleQuote.dividendYield,
-                },
-                defaultKeyStatistics: {
-                  priceToBook: simpleQuote.priceToBook,
-                },
-                financialData: {},
-                summaryProfile: {},
-              };
-            } catch (qError) {
-              console.error('quote() fallback also failed', qError);
-              // Last resort: partial result from original error if available
-              if (e.result) result = e.result;
-              else throw e;
+              result = await yahooFinance.quoteSummary(symbol, { modules });
+              querySymbol = symbol;
+            } catch (e2) {
+              throw e; // Rethrow original error if even basic symbol fails
             }
-          }
-        } else {
-          // Try NSE first
-          try {
-            result = await yahooFinance.quoteSummary(`${querySymbol}.NS`, {
-              modules,
-            });
-          } catch (e: any) {
-            if (e.result) {
-              console.warn(
-                `Validation error for ${querySymbol}.NS, using partial result.`,
-              );
-              result = e.result;
-            } else {
-              console.log(`NSE fetch failed for ${querySymbol}, trying BSE...`);
-              // Try BSE
-              try {
-                result = await yahooFinance.quoteSummary(`${querySymbol}.BO`, {
-                  modules,
-                });
-              } catch (e2: any) {
-                if (e2.result) {
-                  result = e2.result;
-                } else {
-                  throw e2;
-                }
-              }
-            }
+          } else {
+            throw e;
           }
         }
 
@@ -518,49 +478,93 @@ export class StocksService {
         const ebitda = result.financialData?.ebitda;
         const quickRatio = result.financialData?.quickRatio;
 
+        const getVal = (v: any, fallback = 0) => {
+          if (v === null || v === undefined) return fallback;
+          if (typeof v === 'number') return v;
+          if (v.raw !== undefined) return v.raw;
+          return fallback;
+        };
+
+        // 3. Custom Fundamental Calculations (Fallback for missing ratios)
+        // For Indian stocks, balance sheet is often empty in quoteSummary. 
+        // We only call the expensive time-series fetch if we don't have existing ratios
+        // or if it's been more than 24 hours (fundamentals don't change fast).
+        let timeSeriesData = null;
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const needsFundamentals = !stock?.returnOnCapitalEmployed || (stock?.lastUpdated < oneDayAgo);
+
+        if (needsFundamentals && (!isIndex)) {
+          console.log(`Fetching time-series fundamentals for ${querySymbol}...`);
+          timeSeriesData = await this.getYahooFundamentals(querySymbol);
+        }
+
+        const computed = this.calculateFundamentals(result, symbol, timeSeriesData);
+
         const chgPercent = changes !== undefined ? (changes * 100) : (stock?.changePercent || 0);
         const changeValue = (effectivePrice * (chgPercent / 100)) / (1 + (chgPercent / 100));
 
         const dataToUpdate = {
           currentPrice: effectivePrice,
           changePercent: chgPercent,
-          marketCap: marketCap,
-          peRatio: pe,
-          pbRatio: pb,
-          high52Week: high52,
-          low52Week: low52,
-          // New Fields
-          bookValue: bookValue || 0,
-          dividendYield: divYield || 0,
-          returnOnEquity: roe || 0,
-          returnOnAssets: roa || 0,
-          totalDebt: totalDebt || 0,
-          totalRevenue: totalRevenue || 0,
-          profitMargins: profitMargins || 0,
-          operatingMargins: operatingMargins || 0,
-          // Advanced
-          description: description || null,
-          sector: result.summaryProfile?.sector || null,
-          currentRatio: currentRatio || 0,
-          debtToEquity: debtToEquity || 0,
-          freeCashflow: freeCashflow || 0,
-          earningsGrowth: earningsGrowth || 0,
-          revenueGrowth: revenueGrowth || 0,
-          ebitda: ebitda || 0,
-          quickRatio: quickRatio || 0,
+          marketCap: getVal(marketCap) ?? stock?.marketCap ?? null,
+          peRatio: computed.pe ?? getVal(pe) ?? stock?.peRatio ?? null,
+          pbRatio: computed.pb ?? getVal(pb) ?? stock?.pbRatio ?? null,
+          high52Week: getVal(high52) ?? stock?.high52Week ?? null,
+          low52Week: getVal(low52) ?? stock?.low52Week ?? null,
+          // Core Fields
+          bookValue: getVal(bookValue) ?? stock?.bookValue ?? null,
+          dividendYield: getVal(divYield) ?? stock?.dividendYield ?? null,
+          totalDebt: computed.totalDebt ?? getVal(totalDebt) ?? stock?.totalDebt ?? null,
+          totalRevenue: getVal(totalRevenue) ?? stock?.totalRevenue ?? null,
+          // Profile
+          description: description || stock?.description || null,
+          sector: result.summaryProfile?.sector || stock?.sector || null,
+          // Profitability (prefer computed > Yahoo direct > existing DB)
+          returnOnEquity: computed.returnOnEquity ?? roe ?? stock?.returnOnEquity ?? null,
+          returnOnAssets: computed.returnOnAssets ?? roa ?? stock?.returnOnAssets ?? null,
+          returnOnCapitalEmployed: computed.returnOnCapitalEmployed ?? stock?.returnOnCapitalEmployed ?? null,
+          profitMargins: computed.profitMargins ?? profitMargins ?? stock?.profitMargins ?? null,
+          operatingMargins: computed.operatingMargins ?? operatingMargins ?? stock?.operatingMargins ?? null,
+          grossMargin: computed.grossMargin ?? stock?.grossMargin ?? null,
+          // Financial Strength
+          currentRatio: computed.currentRatio ?? currentRatio ?? stock?.currentRatio ?? null,
+          debtToEquity: computed.debtToEquity ?? debtToEquity ?? stock?.debtToEquity ?? null,
+          quickRatio: computed.quickRatio ?? quickRatio ?? stock?.quickRatio ?? null,
+          interestCoverageRatio: computed.interestCoverageRatio ?? stock?.interestCoverageRatio ?? null,
+          // Valuation
+          eps: computed.eps ?? stock?.eps ?? null,
+          bookValuePerShare: computed.bookValuePerShare ?? stock?.bookValuePerShare ?? null,
+          evEbitda: computed.evEbitda ?? stock?.evEbitda ?? null,
+          enterpriseValue: computed.enterpriseValue ?? stock?.enterpriseValue ?? null,
+          ebitda: computed.ebitda ?? ebitda ?? stock?.ebitda ?? null,
+          // Growth
+          revenueGrowth: computed.revenueGrowth ?? revenueGrowth ?? stock?.revenueGrowth ?? null,
+          earningsGrowth: computed.earningsGrowth ?? earningsGrowth ?? stock?.earningsGrowth ?? null,
+          epsGrowth: computed.epsGrowth ?? stock?.epsGrowth ?? null,
+          // Cash Flow
+          operatingCashFlow: computed.operatingCashFlow ?? stock?.operatingCashFlow ?? null,
+          capitalExpenditure: computed.capitalExpenditure ?? stock?.capitalExpenditure ?? null,
+          freeCashflow: computed.freeCashflow ?? freeCashflow ?? stock?.freeCashflow ?? null,
+          fcfMargin: computed.fcfMargin ?? stock?.fcfMargin ?? null,
+          cashFlowToDebt: computed.cashFlowToDebt ?? stock?.cashFlowToDebt ?? null,
+          ocfRatio: computed.ocfRatio ?? stock?.ocfRatio ?? null,
+          // Advanced Valuation
+          pegRatio: computed.pegRatio ?? stock?.pegRatio ?? null,
+          grahamNumber: computed.grahamNumber ?? stock?.grahamNumber ?? null,
+          intrinsicValue: computed.intrinsicValue ?? stock?.intrinsicValue ?? null,
 
           lastUpdated: new Date(),
         };
 
         const updatedStock = await this.prisma.stock.upsert({
-          where: { symbol },
+          where: { symbol: querySymbol },
           update: dataToUpdate,
           create: {
-            symbol: symbol,
+            symbol: querySymbol,
             companyName: result.price?.shortName || symbol,
             exchange:
               result.price?.exchangeName ||
-              (symbol.includes('.BO') ? 'BSE' : 'NSE'),
+              (querySymbol.includes('.BO') ? 'BSE' : 'NSE'),
             ...dataToUpdate,
           },
           include: { investorStocks: { include: { investor: true } }, financials: true },
@@ -580,32 +584,32 @@ export class StocksService {
 
         if (fallbackPrice) {
           console.log(`Fallback successful. Updating ${symbol} with price ${fallbackPrice}`);
-          const fallbackData = {
+          const fallbackData: any = {
             currentPrice: fallbackPrice,
-            companyName: symbol, // Best effort
+            companyName: stock?.companyName || symbol,
             exchange: symbol.includes('.BO') ? 'BSE' : 'NSE',
             lastUpdated: new Date(),
-            // Set basics to avoid validation issues, others remain outdated or 0
-            marketCap: stock?.marketCap || 0,
-            peRatio: stock?.peRatio || 0,
-            pbRatio: stock?.pbRatio || 0,
-            high52Week: stock?.high52Week || 0,
-            low52Week: stock?.low52Week || 0,
-            bookValue: stock?.bookValue || 0,
-            dividendYield: stock?.dividendYield || 0,
-            returnOnEquity: stock?.returnOnEquity || 0,
-            returnOnAssets: stock?.returnOnAssets || 0,
-            totalDebt: stock?.totalDebt || 0,
-            totalRevenue: stock?.totalRevenue || 0,
-            profitMargins: stock?.profitMargins || 0,
-            operatingMargins: stock?.operatingMargins || 0,
-            currentRatio: stock?.currentRatio || 0,
-            debtToEquity: stock?.debtToEquity || 0,
-            freeCashflow: stock?.freeCashflow || 0,
-            earningsGrowth: stock?.earningsGrowth || 0,
-            revenueGrowth: stock?.revenueGrowth || 0,
-            ebitda: stock?.ebitda || 0,
-            quickRatio: stock?.quickRatio || 0,
+            // Preserve existing DB values — don't zero-out computed fundamentals
+            marketCap: stock?.marketCap ?? null,
+            peRatio: stock?.peRatio ?? null,
+            pbRatio: stock?.pbRatio ?? null,
+            high52Week: stock?.high52Week ?? null,
+            low52Week: stock?.low52Week ?? null,
+            bookValue: stock?.bookValue ?? null,
+            dividendYield: stock?.dividendYield ?? null,
+            returnOnEquity: stock?.returnOnEquity ?? null,
+            returnOnAssets: stock?.returnOnAssets ?? null,
+            totalDebt: stock?.totalDebt ?? null,
+            totalRevenue: stock?.totalRevenue ?? null,
+            profitMargins: stock?.profitMargins ?? null,
+            operatingMargins: stock?.operatingMargins ?? null,
+            currentRatio: stock?.currentRatio ?? null,
+            debtToEquity: stock?.debtToEquity ?? null,
+            freeCashflow: stock?.freeCashflow ?? null,
+            earningsGrowth: stock?.earningsGrowth ?? null,
+            revenueGrowth: stock?.revenueGrowth ?? null,
+            ebitda: stock?.ebitda ?? null,
+            quickRatio: stock?.quickRatio ?? null,
           };
 
           const updatedStock = await this.prisma.stock.upsert({
@@ -1271,24 +1275,32 @@ export class StocksService {
         if (!symbol) continue;
 
         const price = data.price?.regularMarketPrice;
+
+        const getV = (v: any) => {
+          if (v === null || v === undefined) return undefined; // Don't overwrite if null
+          if (typeof v === 'number') return v;
+          if (v.raw !== undefined) return v.raw;
+          return undefined;
+        };
+
         await this.prisma.stock.update({
           where: { symbol: symbol },
           data: {
-            currentPrice: price,
-            changePercent: (data.price?.regularMarketChangePercent || 0) * 100,
-            marketCap: data.summaryDetail?.marketCap,
-            peRatio: data.summaryDetail?.trailingPE,
-            pbRatio: data.defaultKeyStatistics?.priceToBook,
-            high52Week: data.summaryDetail?.fiftyTwoWeekHigh,
-            low52Week: data.summaryDetail?.fiftyTwoWeekLow,
-            bookValue: data.defaultKeyStatistics?.bookValue,
-            dividendYield: data.summaryDetail?.dividendYield,
-            returnOnEquity: data.financialData?.returnOnEquity,
-            returnOnAssets: data.financialData?.returnOnAssets,
-            totalDebt: data.financialData?.totalDebt,
-            totalRevenue: data.financialData?.totalRevenue,
-            profitMargins: data.financialData?.profitMargins,
-            operatingMargins: data.financialData?.operatingMargins,
+            currentPrice: price || undefined,
+            changePercent: data.price?.regularMarketChangePercent !== undefined ? (data.price.regularMarketChangePercent * 100) : undefined,
+            marketCap: getV(data.summaryDetail?.marketCap),
+            peRatio: getV(data.summaryDetail?.trailingPE),
+            pbRatio: getV(data.defaultKeyStatistics?.priceToBook),
+            high52Week: getV(data.summaryDetail?.fiftyTwoWeekHigh),
+            low52Week: getV(data.summaryDetail?.fiftyTwoWeekLow),
+            bookValue: getV(data.defaultKeyStatistics?.bookValue),
+            dividendYield: getV(data.summaryDetail?.dividendYield),
+            returnOnEquity: getV(data.financialData?.returnOnEquity),
+            returnOnAssets: getV(data.financialData?.returnOnAssets),
+            totalDebt: getV(data.financialData?.totalDebt),
+            totalRevenue: getV(data.financialData?.totalRevenue),
+            profitMargins: getV(data.financialData?.profitMargins),
+            operatingMargins: getV(data.financialData?.operatingMargins),
             lastUpdated: new Date(),
           },
         });
@@ -1840,11 +1852,418 @@ export class StocksService {
       };
     } catch (e) {
       console.error(`Technical Analysis failed for ${symbol}`, e);
-      const signals = calculateTechnicalSignals([]);
-      return {
-        ...signals,
-        syntheticRationale: generateSyntheticRationale(signals, symbol),
-      };
+      return calculateTechnicalSignals([]);
     }
+  }
+
+  private async getYahooFundamentals(symbol: string) {
+    const yf = await this.getYahooClient();
+    let querySymbol = symbol;
+    if (!symbol.includes('.') && !symbol.startsWith('^')) {
+      querySymbol = `${symbol}.NS`;
+    }
+
+    try {
+      // yahoo-finance2 v3 API: type is 'annual'|'quarterly'|'trailing', module is 'financials'|'balance-sheet'|'cash-flow'|'all'
+      const res = await yf.fundamentalsTimeSeries(querySymbol, {
+        period1: '2021-01-01',
+        type: 'annual',
+        module: 'all',
+      });
+
+      // V3 returns an array of objects, each representing a period with key-value pairs
+      // e.g. { date: 1234567890, TYPE: 'FINANCIALS', periodType: '12M', totalRevenue: 123456, netIncome: 78900, ... }
+      if (!Array.isArray(res) || res.length === 0) {
+        console.log(`[TimeSeries] ${symbol}: No data returned`);
+        return null;
+      }
+
+      // Sort by date descending (latest first)
+      const sorted = [...res].sort((a: any, b: any) => {
+        const dateA = a.date instanceof Date ? a.date.getTime() : (typeof a.date === 'number' ? a.date * 1000 : new Date(a.date).getTime());
+        const dateB = b.date instanceof Date ? b.date.getTime() : (typeof b.date === 'number' ? b.date * 1000 : new Date(b.date).getTime());
+        return dateB - dateA;
+      });
+
+      // Build multi-year data: { fieldName: [{ date, value }, ...] } and latest: { fieldName: { raw: value } }
+      const multiYear: any = {};
+      const latestData: any = {};
+
+      // Get all unique field names (excluding metadata keys)
+      const metaKeys = new Set(['date', 'TYPE', 'periodType']);
+      const allFieldKeys = new Set<string>();
+      sorted.forEach((period: any) => {
+        Object.keys(period).forEach(k => {
+          if (!metaKeys.has(k) && period[k] !== null && period[k] !== undefined) {
+            allFieldKeys.add(k);
+          }
+        });
+      });
+
+      // For each field, build the time series
+      for (const key of allFieldKeys) {
+        const values: any[] = [];
+        for (const period of sorted) {
+          if (period[key] !== null && period[key] !== undefined) {
+            const dateVal = period.date instanceof Date
+              ? period.date.toISOString().split('T')[0]
+              : (typeof period.date === 'number' ? new Date(period.date * 1000).toISOString().split('T')[0] : period.date);
+            values.push({ date: dateVal, value: period[key] });
+          }
+        }
+        if (values.length > 0) {
+          multiYear[key] = values;
+          latestData[key] = { raw: values[0].value };
+        }
+      }
+
+      console.log(`[TimeSeries] ${symbol}: ${Object.keys(latestData).length} fields - ${Object.keys(latestData).slice(0, 8).join(', ')}...`);
+      return { latest: latestData, multiYear };
+    } catch (e) {
+      console.warn(`[TimeSeries] ${symbol} failed: ${(e as any).message?.substring(0, 120)}`);
+      // Graceful degradation — return null, the calculation engine will use financialData fallbacks
+    }
+    return null;
+  }
+
+  // Fundamental Calculation Engine — Institutional-Grade
+  private calculateFundamentals(summary: any, symbol: string, timeSeriesResult?: any) {
+    const quote = summary.price || {};
+    const financialData = summary.financialData || {};
+    const defaultStats = summary.defaultKeyStatistics || {};
+    const summaryDetail = summary.summaryDetail || {};
+
+    // --- Helper: extract numeric value from Yahoo's various formats ---
+    const gv = (obj: any, keys: string | string[]): number | null => {
+      if (!obj) return null;
+      const keyList = Array.isArray(keys) ? keys : [keys];
+      for (const key of keyList) {
+        const val = obj[key];
+        if (val === null || val === undefined) continue;
+        if (typeof val === 'number') return val;
+        if (val.raw !== undefined && val.raw !== null) return val.raw;
+      }
+      return null;
+    };
+    // Non-zero variant: Yahoo returns 0 for "data not available" in Indian income statements
+    // Fields like ebit, grossProfit, costOfRevenue should NEVER be 0 for a real company
+    const gvNZ = (obj: any, keys: string | string[]): number | null => {
+      const v = gv(obj, keys);
+      return (v !== null && v !== 0) ? v : null;
+    };
+
+    // --- Helper: get value from multi-year timeseries ---
+    const tsLatest = timeSeriesResult?.latest || {};
+    const tsMulti = timeSeriesResult?.multiYear || {};
+
+    const tsVal = (key: string, yearIndex = 0): number | null => {
+      // From multi-year data
+      const arr = tsMulti[key];
+      if (arr && arr.length > yearIndex) {
+        const v = arr[yearIndex]?.value;
+        if (v !== null && v !== undefined) return v;
+      }
+      // Fallback to latest flat data
+      if (yearIndex === 0) {
+        const flat = tsLatest[key];
+        if (flat?.raw !== undefined && flat.raw !== null) return flat.raw;
+      }
+      return null;
+    };
+
+    // 1. Fetch Latest Statements (Prefer TimeSeries > Annual > Quarterly)
+    const incomeHistory = summary.incomeStatementHistory?.incomeStatementHistory
+      || summary.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+    const latestIncome = incomeHistory[0] || {};
+    const prevIncome = incomeHistory[1] || {};
+
+    const balanceHistory = summary.balanceSheetHistory?.balanceSheetStatements
+      || summary.balanceSheetHistoryQuarterly?.balanceSheetStatements || [];
+    const latestBalance = balanceHistory[0] || {};
+    const prevBalance = balanceHistory[1] || {};
+
+    const cashflowHistory = summary.cashflowStatementHistory?.cashflowStatements
+      || summary.cashflowStatementHistoryQuarterly?.cashflowStatements || [];
+    const latestCashflow = cashflowHistory[0] || {};
+
+    // ===================== 2. EXTRACT BASE METRICS =====================
+    // Income Statement
+    const netIncome = tsVal('netIncome') ?? gv(latestIncome, ['netIncome', 'netIncomeApplicableToCommonShares']);
+    const prevNetIncome = tsVal('netIncome', 1) ?? gv(prevIncome, ['netIncome', 'netIncomeApplicableToCommonShares']);
+    const revenue = tsVal('totalRevenue') ?? gv(latestIncome, ['totalRevenue', 'revenue']) ?? gv(financialData, 'totalRevenue');
+    const prevRevenue = tsVal('totalRevenue', 1) ?? gv(prevIncome, ['totalRevenue', 'revenue']);
+    const costOfRevenue = tsVal('costOfRevenue') ?? gvNZ(latestIncome, ['costOfRevenue']);
+    const grossProfit = tsVal('grossProfit') ?? gvNZ(latestIncome, ['grossProfit']);
+    const ebit = tsVal('ebit') ?? tsVal('operatingIncome') ?? gvNZ(latestIncome, ['ebit', 'operatingIncome']);
+    const interestExpense = tsVal('interestExpense') ?? gv(latestIncome, ['interestExpense']);
+    const depreciation = tsVal('depreciationAndAmortization') ?? gvNZ(latestIncome, ['depreciation']);
+    const preferredDividends = 0; // Rarely available, default 0
+
+    // EBITDA
+    const yahooEbitda = gv(financialData, ['ebitda']);
+    const calcEbitdaFromEbit = (ebit !== null && depreciation !== null) ? (ebit + depreciation) : null;
+    const ebitda = yahooEbitda ?? calcEbitdaFromEbit ?? ebit;
+
+    // Balance Sheet
+    const shareholderEquity = tsVal('stockholdersEquity') ?? tsVal('totalEquityGrossMinorityInterest') ?? gv(latestBalance, ['totalStockholderEquity', 'totalStockholdersEquity', 'stockholdersEquity']);
+    const prevEquity = tsVal('stockholdersEquity', 1) ?? tsVal('totalEquityGrossMinorityInterest', 1) ?? gv(prevBalance, ['totalStockholderEquity', 'totalStockholdersEquity', 'stockholdersEquity']);
+    const totalAssets = tsVal('totalAssets') ?? gv(latestBalance, ['totalAssets']);
+    const prevTotalAssets = tsVal('totalAssets', 1) ?? gv(prevBalance, ['totalAssets']);
+    const currentLiabilities = tsVal('totalCurrentLiabilities') ?? gv(latestBalance, ['totalCurrentLiabilities']);
+    const currentAssets = tsVal('totalCurrentAssets') ?? gv(latestBalance, ['totalCurrentAssets']);
+    const inventory = tsVal('inventory') ?? gv(latestBalance, ['inventory']);
+    const totalLiabilities = tsVal('totalLiabilitiesNetMinorityInterest') ?? gv(latestBalance, ['totalLiab', 'totalLiabilities']);
+    const totalDebt = tsVal('totalDebt') ?? gv(financialData, ['totalDebt']);
+    const totalCash = tsVal('cashAndCashEquivalents') ?? gv(financialData, ['totalCash']);
+
+    // Shares
+    const sharesOutstanding = tsVal('ordinarySharesNumber') ?? gv(defaultStats, ['sharesOutstanding']);
+
+    // Cash Flow
+    const operatingCashFlow = tsVal('operatingCashFlow') ?? gv(latestCashflow, ['totalCashFromOperatingActivities']) ?? gv(financialData, ['operatingCashflow']);
+    const capitalExpenditure = (() => {
+      const raw = tsVal('capitalExpenditure') ?? gv(latestCashflow, ['capitalExpenditures']);
+      return raw !== null ? Math.abs(raw) : null;
+    })();
+
+    // Price / Market Data
+    const marketCap = gv(summaryDetail, ['marketCap']) ?? gv(quote, ['marketCap']);
+    const currentPrice = gv(quote, ['regularMarketPrice']);
+
+    // Average Equity/Assets for institutional-grade ROE/ROA
+    const avgEquity = (shareholderEquity !== null && prevEquity !== null) ? (shareholderEquity + prevEquity) / 2 : shareholderEquity;
+    const avgAssets = (totalAssets !== null && prevTotalAssets !== null) ? (totalAssets + prevTotalAssets) / 2 : totalAssets;
+
+    console.log(`${symbol} CALC - Revenue: ${revenue}, NetIncome: ${netIncome}, EBIT: ${ebit}, EBITDA: ${ebitda}`);
+    console.log(`${symbol} CALC - Equity: ${shareholderEquity}, AvgEquity: ${avgEquity}, Assets: ${totalAssets}, Shares: ${sharesOutstanding}`);
+    console.log(`${symbol} CALC - OCF: ${operatingCashFlow}, CapEx: ${capitalExpenditure}, TotalDebt: ${totalDebt}, Cash: ${totalCash}`);
+
+    // ===================== 3. PROFITABILITY RATIOS =====================
+    // ROE = Net Income / Average Equity × 100
+    const calcRoe = (netIncome !== null && avgEquity !== null && avgEquity !== 0) ? (netIncome / avgEquity) : null;
+    // Tier 2: Yahoo financialData
+    // Tier 3: Compute from defaultKeyStatistics: netIncomeToCommon / (shares × bookValue)
+    const nltc = gv(defaultStats, 'netIncomeToCommon');
+    const bkVal = gv(defaultStats, 'bookValue');
+    const calcRoeFromStats = (nltc !== null && sharesOutstanding !== null && bkVal !== null && sharesOutstanding > 0 && bkVal > 0)
+      ? (nltc / (sharesOutstanding * bkVal)) : null;
+    const finalRoe = calcRoe ?? gv(financialData, 'returnOnEquity') ?? calcRoeFromStats;
+
+    // ROA = Net Income / Average Total Assets × 100
+    const calcRoa = (netIncome !== null && avgAssets !== null && avgAssets !== 0) ? (netIncome / avgAssets) : null;
+    const finalRoa = calcRoa ?? gv(financialData, 'returnOnAssets');
+
+    // ROCE = EBIT / Capital Employed
+    const capitalEmployed = (totalAssets !== null && currentLiabilities !== null) ? (totalAssets - currentLiabilities) : null;
+    const calcRoce = (ebit !== null && capitalEmployed !== null && capitalEmployed > 0) ? (ebit / capitalEmployed) : null;
+    // Tier 2: Approximate ROCE from operating margin × totalRev / approximate capital employed
+    const yahooOpm = gv(financialData, 'operatingMargins');
+    const yahooRev = gv(financialData, 'totalRevenue');
+    const approxEbit = (yahooOpm !== null && yahooRev !== null) ? (yahooOpm * yahooRev) : null;
+    const yahooEV = gv(defaultStats, 'enterpriseValue');
+    // Capital employed ≈ Enterprise Value - Net Debt + Equity, approx as EV since data is limited
+    const calcRoceFromFd = (approxEbit !== null && yahooEV !== null && yahooEV > 0) ? (approxEbit / yahooEV) : null;
+    const finalRoce = calcRoce ?? calcRoceFromFd;
+
+    // Net Profit Margin = Net Income / Revenue
+    const calcProfitMargin = (netIncome !== null && revenue !== null && revenue !== 0) ? (netIncome / revenue) : null;
+    const finalProfitMargin = calcProfitMargin ?? gv(financialData, 'profitMargins');
+
+    // Operating Margin = EBIT / Revenue
+    const calcOperatingMargin = (ebit !== null && revenue !== null && revenue !== 0) ? (ebit / revenue) : null;
+    const finalOperatingMargin = calcOperatingMargin ?? gv(financialData, 'operatingMargins');
+
+    // Gross Margin = (Revenue - COGS) / Revenue  OR  Gross Profit / Revenue
+    const calcGrossMargin = (() => {
+      if (grossProfit !== null && revenue !== null && revenue !== 0) return grossProfit / revenue;
+      if (costOfRevenue !== null && revenue !== null && revenue !== 0) return (revenue - costOfRevenue) / revenue;
+      return null;
+    })();
+    const finalGrossMargin = calcGrossMargin ?? gv(financialData, ['grossMargins']);
+
+    // ===================== 4. VALUATION RATIOS =====================
+    // EPS = (Net Income - Preferred Dividends) / Total Outstanding Shares
+    const calcEps = (netIncome !== null && sharesOutstanding !== null && sharesOutstanding > 0)
+      ? ((netIncome - preferredDividends) / sharesOutstanding) : null;
+    // Yahoo has pre-computed EPS in defaultKeyStatistics
+    const finalEps = calcEps ?? gv(defaultStats, 'trailingEps');
+
+    const prevEps = (prevNetIncome !== null && sharesOutstanding !== null && sharesOutstanding > 0)
+      ? ((prevNetIncome - preferredDividends) / sharesOutstanding) : null;
+
+    // P/E = Current Share Price / EPS
+    const calcPe = (currentPrice !== null && finalEps !== null && finalEps > 0) ? (currentPrice / finalEps) : (gv(summaryDetail, 'trailingPE'));
+
+    // Book Value = Total Assets - Total Liabilities
+    const bookValue = (totalAssets !== null && totalLiabilities !== null) ? (totalAssets - totalLiabilities) : null;
+
+    // BVPS = Total Equity / Shares Outstanding (fallback to Yahoo's bookValue)
+    const calcBvps = (shareholderEquity !== null && sharesOutstanding !== null && sharesOutstanding > 0) ? (shareholderEquity / sharesOutstanding) : null;
+    const bvps = calcBvps ?? gv(defaultStats, 'bookValue');
+
+    // P/B = Price / BVPS
+    const calcPb = (currentPrice !== null && bvps !== null && bvps > 0) ? (currentPrice / bvps) : (gv(defaultStats, 'priceToBook'));
+
+    // Enterprise Value = Market Cap + Total Debt - Cash (prefer Yahoo's pre-computed)
+    const yahooEVFromStats = gv(defaultStats, 'enterpriseValue');
+    const enterpriseValue = (marketCap !== null && totalDebt !== null && totalCash !== null)
+      ? (marketCap + totalDebt - totalCash) : (yahooEVFromStats ?? null);
+
+    // EV/EBITDA (also available as enterpriseToEbitda from Yahoo)
+    const calcEvEbitda = (enterpriseValue !== null && ebitda !== null && ebitda !== 0) ? (enterpriseValue / ebitda) : null;
+    const finalEvEbitda = calcEvEbitda ?? gv(defaultStats, 'enterpriseToEbitda');
+
+    // ===================== 5. FINANCIAL STRENGTH =====================
+    // D/E = Total Debt / Total Equity
+    const calcDebtToEquity = (totalDebt !== null && shareholderEquity !== null && shareholderEquity !== 0)
+      ? (totalDebt / shareholderEquity) : null;
+    const finalDebtToEquity = calcDebtToEquity ?? gv(financialData, 'debtToEquity');
+
+    // Current Ratio = Current Assets / Current Liabilities
+    const calcCurrentRatio = (currentAssets !== null && currentLiabilities !== null && currentLiabilities !== 0)
+      ? (currentAssets / currentLiabilities) : null;
+    const finalCurrentRatio = calcCurrentRatio ?? gv(financialData, 'currentRatio');
+
+    // Quick Ratio = (Current Assets - Inventory) / Current Liabilities
+    const calcQuickRatio = (() => {
+      if (currentAssets !== null && inventory !== null && currentLiabilities !== null && currentLiabilities !== 0) {
+        return (currentAssets - inventory) / currentLiabilities;
+      }
+      return null;
+    })();
+    const finalQuickRatio = calcQuickRatio ?? gv(financialData, 'quickRatio');
+
+    // Interest Coverage = EBIT / Interest Expense
+    const calcIcr = (ebit !== null && interestExpense !== null && interestExpense !== 0) ? (ebit / Math.abs(interestExpense)) : null;
+
+    // ===================== 6. GROWTH METRICS =====================
+    const safeGrowth = (current: number | null, previous: number | null): number | null => {
+      if (current === null || previous === null || previous === 0) return null;
+      return (current - previous) / Math.abs(previous);
+    };
+
+    // Revenue Growth (YoY)
+    const calcRevenueGrowth = safeGrowth(revenue, prevRevenue);
+    const finalRevenueGrowth = calcRevenueGrowth ?? gv(financialData, 'revenueGrowth');
+
+    // Earnings Growth (YoY)
+    const calcEarningsGrowth = safeGrowth(netIncome, prevNetIncome);
+    const finalEarningsGrowth = calcEarningsGrowth ?? gv(financialData, 'earningsGrowth');
+
+    // EPS Growth
+    const calcEpsGrowth = safeGrowth(calcEps, prevEps);
+
+    // 3-Year Revenue CAGR
+    const calcRevenueCagr = (() => {
+      const revenueArr = tsMulti['totalRevenue'];
+      if (revenueArr && revenueArr.length >= 3) {
+        const latest = revenueArr[0]?.value;
+        const oldest = revenueArr[revenueArr.length - 1]?.value;
+        const n = revenueArr.length - 1;
+        if (latest > 0 && oldest > 0 && n > 0) {
+          return Math.pow(latest / oldest, 1 / n) - 1;
+        }
+      }
+      return null;
+    })();
+
+    // ===================== 7. CASH FLOW METRICS =====================
+    // FCF = Operating Cash Flow - CapEx
+    const calcFcf = (operatingCashFlow !== null && capitalExpenditure !== null) ? (operatingCashFlow - capitalExpenditure) : null;
+    const finalFcf = calcFcf ?? gv(financialData, 'freeCashflow');
+    const finalOcf = operatingCashFlow ?? gv(financialData, 'operatingCashflow');
+
+    // FCF Margin = FCF / Revenue
+    const calcFcfMargin = (finalFcf !== null && revenue !== null && revenue !== 0) ? (finalFcf / revenue) : null;
+
+    // Cash Flow to Debt = OCF / Total Debt
+    const calcCashFlowToDebt = (finalOcf !== null && totalDebt !== null && totalDebt !== 0) ? (finalOcf / totalDebt) : null;
+
+    // OCF Ratio = Operating Cash Flow / Current Liabilities
+    const calcOcfRatio = (finalOcf !== null && currentLiabilities !== null && currentLiabilities !== 0) ? (finalOcf / currentLiabilities) : null;
+
+    // ===================== 8. ADVANCED VALUATION =====================
+    // PEG = PE / EPS Growth (use % form)
+    const pe = calcPe;
+    const epsGrowthPct = calcEpsGrowth !== null ? (calcEpsGrowth * 100) : null;
+    const calcPeg = (pe !== null && epsGrowthPct !== null && epsGrowthPct > 0) ? (pe / epsGrowthPct) : null;
+
+    // Graham Number = sqrt(22.5 × EPS × BVPS)
+    const calcGraham = (finalEps !== null && bvps !== null && finalEps > 0 && bvps > 0) ? Math.sqrt(22.5 * finalEps * bvps) : null;
+
+    // Intrinsic Value (Simple DCF) — 10-year projection with 10% discount rate
+    const calcIntrinsicValue = (() => {
+      const fcfForDcf = finalFcf;
+      if (fcfForDcf === null || fcfForDcf <= 0 || sharesOutstanding === null || sharesOutstanding <= 0) return null;
+      const growthRate = finalRevenueGrowth ?? 0.08; // Default 8% growth
+      const discountRate = 0.10;
+      let totalPV = 0;
+      for (let year = 1; year <= 10; year++) {
+        const futureCF = fcfForDcf * Math.pow(1 + growthRate, year);
+        totalPV += futureCF / Math.pow(1 + discountRate, year);
+      }
+      // Terminal value (Gordon Growth, 3% terminal growth)
+      const terminalCF = fcfForDcf * Math.pow(1 + growthRate, 10) * (1 + 0.03);
+      const terminalValue = terminalCF / (discountRate - 0.03);
+      const pvTerminal = terminalValue / Math.pow(1 + discountRate, 10);
+      return (totalPV + pvTerminal) / sharesOutstanding;
+    })();
+
+    console.log(`${symbol} FINAL - ROE: ${finalRoe}, ROA: ${finalRoa}, ROCE: ${calcRoce}, GM: ${finalGrossMargin}`);
+    console.log(`${symbol} FINAL - EPS: ${finalEps}, PE: ${calcPe}, PB: ${calcPb}, EV: ${enterpriseValue}`);
+    console.log(`${symbol} FINAL - FCF: ${finalFcf}, OCF: ${finalOcf}, CashFlowToDebt: ${calcCashFlowToDebt}`);
+
+    // ===================== RETURN ALL COMPUTED METRICS =====================
+    return {
+      // Profitability — use finalXxx which fallback to financialData when statements are empty
+      returnOnEquity: finalRoe,
+      returnOnAssets: finalRoa,
+      returnOnCapitalEmployed: finalRoce,
+      profitMargins: finalProfitMargin,
+      operatingMargins: finalOperatingMargin,
+      grossMargin: finalGrossMargin,
+
+      // Valuation
+      pe: calcPe,
+      pb: calcPb,
+      eps: finalEps,
+      bookValuePerShare: bvps,
+      evEbitda: finalEvEbitda,
+      enterpriseValue: enterpriseValue,
+      ebitda: ebitda,
+
+      // Financial Strength
+      totalDebt: totalDebt,
+      currentRatio: finalCurrentRatio,
+      quickRatio: finalQuickRatio,
+      debtToEquity: finalDebtToEquity,
+      interestCoverageRatio: calcIcr,
+
+      // Growth
+      revenueGrowth: finalRevenueGrowth,
+      earningsGrowth: finalEarningsGrowth,
+      epsGrowth: calcEpsGrowth,
+
+      // Cash Flow
+      operatingCashFlow: finalOcf,
+      capitalExpenditure: capitalExpenditure,
+      freeCashflow: finalFcf,
+      fcfMargin: calcFcfMargin,
+      cashFlowToDebt: calcCashFlowToDebt,
+      ocfRatio: calcOcfRatio,
+
+      // Advanced
+      pegRatio: calcPeg,
+      grahamNumber: calcGraham,
+      intrinsicValue: calcIntrinsicValue,
+    };
+  }
+
+  // Helper to safely get a numeric value, preferring first non-null
+  private getValueSafe(...values: any[]): number | null {
+    for (const v of values) {
+      if (v !== null && v !== undefined && typeof v === 'number' && !isNaN(v)) return v;
+    }
+    return null;
   }
 }
