@@ -100,10 +100,8 @@ export class FyersSocketService implements OnModuleInit {
 
             // If mapping worked or it's a direct index name
             if (yahooSymbol) {
-                // DEBUG LOG for indices
-                if (fyersSymbol.includes('INDEX') || ['NIFTY 50', 'SENSEX', 'NIFTY BANK', 'Nifty 50', 'Sensex', 'Nifty Bank'].includes(fyersSymbol)) {
-                    this.logger.log(`[WebSocket] Index Update Matched: ${fyersSymbol} -> ${yahooSymbol} | Price: ${price} | Ch: ${message.ch || message.cng} | ChP: ${message.chp || message.nc}`);
-                }
+                // Tick log suppressed — fires on every price update. Use debug to re-enable.
+                // this.logger.debug(`[WebSocket] Index Update: ${fyersSymbol} -> ${yahooSymbol} | Price: ${price}`);
 
                 this.stocksGateway.sendPriceUpdate(yahooSymbol, {
                     price: price,
