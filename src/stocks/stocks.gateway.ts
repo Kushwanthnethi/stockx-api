@@ -30,12 +30,12 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private subscribedSymbols: Map<string, Set<string>> = new Map();
 
     handleConnection(client: Socket) {
-        this.logger.log(`Client connected: ${client.id}`);
+        this.logger.debug(`Client connected: ${client.id}`);
         this.subscribedSymbols.set(client.id, new Set());
     }
 
     handleDisconnect(client: Socket) {
-        this.logger.log(`Client disconnected: ${client.id}`);
+        this.logger.debug(`Client disconnected: ${client.id}`);
         this.subscribedSymbols.delete(client.id);
     }
 
@@ -51,7 +51,7 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
             normalizedSymbol = `${normalizedSymbol}.NS`;
         }
 
-        this.logger.log(`Client ${client.id} subscribing to ${normalizedSymbol}`);
+        this.logger.debug(`Client ${client.id} subscribing to ${normalizedSymbol}`);
 
         if (!this.subscribedSymbols.has(client.id)) {
             this.subscribedSymbols.set(client.id, new Set());
@@ -73,7 +73,7 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
             normalizedSymbol = `${normalizedSymbol}.NS`;
         }
 
-        this.logger.log(`Client ${client.id} unsubscribing from ${normalizedSymbol}`);
+        this.logger.debug(`Client ${client.id} unsubscribing from ${normalizedSymbol}`);
 
         if (this.subscribedSymbols.has(client.id)) {
             this.subscribedSymbols.get(client.id)?.delete(normalizedSymbol);
@@ -88,9 +88,8 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const room = this.server.sockets.adapter.rooms.get(roomName);
         const count = room ? room.size : 0;
 
-        if (symbol === 'NIFTY 50' || symbol === 'SENSEX' || symbol === 'NIFTY BANK') {
-            this.logger.log(`[Gateway] Emitting ${symbol} update to ${count} clients in room ${roomName}. Price: ${data.price}`);
-        }
+        // Tick logs suppressed — too noisy for prod. Re-enable via debug if needed.
+        // this.logger.debug(`[Gateway] Emitting ${symbol} update to ${count} clients. Price: ${data.price}`);
 
         this.server.to(roomName).emit('priceUpdate', data);
     }

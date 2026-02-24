@@ -262,7 +262,7 @@ export class VerdictsService implements OnModuleInit {
     retryCount = 0,
   ): Promise<boolean> {
     try {
-      this.logger.log(
+      this.logger.debug(
         `Generating Verdict for ${symbol}...${retryCount > 0 ? ' (Retry ' + retryCount + ')' : ''}`,
       );
 
@@ -320,11 +320,11 @@ export class VerdictsService implements OnModuleInit {
         return false;
       }
 
-      this.logger.log(`Calling Gemini API for ${symbol}...`);
+      this.logger.debug(`Calling Gemini API for ${symbol}...`);
       const startTime = Date.now();
       const result = await model.generateContent(prompt);
       const endTime = Date.now();
-      this.logger.log(
+      this.logger.debug(
         `Gemini API responded for ${symbol} in ${endTime - startTime}ms.`,
       );
       const responseText = result.response.text();
@@ -347,7 +347,7 @@ export class VerdictsService implements OnModuleInit {
         },
       });
 
-      this.logger.log(`Verdict saved for ${symbol}: ${data.verdict}`);
+      this.logger.log(`[Verdict] ✓ ${symbol}: ${data.verdict} (${data.confidence}%)`);
       return true;
     } catch (e: any) {
       if (e.message?.includes('429') || e.message?.includes('quota')) {

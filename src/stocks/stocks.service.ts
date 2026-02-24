@@ -196,14 +196,14 @@ export class StocksService {
 
   async getQuotes(symbols: string[]) {
     try {
-      this.logger.log(`Fetching batch quotes for ${symbols.length} symbols...`);
+      this.logger.debug(`Fetching batch quotes for ${symbols.length} symbols...`);
 
       // 1. Map to Fyers Symbols
       const fyersSymbols = symbols.map(s => SymbolMapper.toFyers(s));
       const fyersQuotes = await this.fyersService.getQuotes(fyersSymbols);
 
       if (fyersQuotes && fyersQuotes.length > 0) {
-        this.logger.log(`Received ${fyersQuotes.length} quotes from Fyers.`);
+        this.logger.debug(`Received ${fyersQuotes.length} quotes from Fyers.`);
 
         const results = [];
         for (const symbol of symbols) {
@@ -348,9 +348,7 @@ export class StocksService {
       stock.currentPrice === 0
     ) {
       try {
-        console.log(`Fetching live data for ${symbol}...`);
-
-        console.log(`Fetching live data for ${symbol}...`);
+        this.logger.debug(`Fetching live data for ${symbol}...`);
 
         // Map names to Fyers symbols for indices
         if (symbol === 'NIFTY 50' || symbol === 'SENSEX' || symbol === 'NIFTY BANK' || symbol.startsWith('^')) {
@@ -495,7 +493,7 @@ export class StocksService {
         const needsFundamentals = !stock?.returnOnCapitalEmployed || (stock?.lastUpdated < oneDayAgo);
 
         if (needsFundamentals && (!isIndex)) {
-          console.log(`Fetching time-series fundamentals for ${querySymbol}...`);
+          this.logger.debug(`Fetching time-series fundamentals for ${querySymbol}...`);
           timeSeriesData = await this.getYahooFundamentals(querySymbol);
         }
 
