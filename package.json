@@ -38,6 +38,7 @@
     "axios": "^1.13.4",
     "bcrypt": "^6.0.0",
     "cloudinary": "^2.9.0",
+    "exceljs": "^4.4.0",
     "firebase-admin": "^13.6.0",
     "fyers-api-v3": "^1.6.0",
     "groq-sdk": "^0.37.0",

@@ -268,4 +268,17 @@ export class UsersService {
       data: { passwordHash },
     });
   }
+
+  async updatePreferences(userId: string, prefs: { receiveReport?: boolean }) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(prefs.receiveReport !== undefined && { receiveReport: prefs.receiveReport }),
+      },
+      select: {
+        id: true,
+        receiveReport: true,
+      },
+    });
+  }
 }

@@ -47,6 +47,8 @@ model User {
   visits       UserVisit[]
   portfolios   UserPortfolio[]
 
+  receiveReport Boolean @default(false) @map("receive_report")
+
   @@map("users")
 }
 
@@ -429,9 +431,27 @@ model StockOfTheWeek {
   createdAt       DateTime @default(now()) @map("created_at")
 
   stock           Stock    @relation(fields: [stockSymbol], references: [symbol])
+  dailyPrices     SowDailyPrice[]
   
   @@unique([weekStartDate]) // Only one pick per week
   @@map("stock_of_the_week")
+}
+
+model SowDailyPrice {
+  id           String   @id @default(uuid())
+  sowId        String   @map("sow_id")
+  date         DateTime @db.Date
+  openPrice    Float    @map("open_price")
+  closePrice   Float    @map("close_price")
+  highPrice    Float?   @map("high_price")
+  lowPrice     Float?   @map("low_price")
+  volume       Float?
+  changePct    Float?   @map("change_pct")
+
+  sow          StockOfTheWeek @relation(fields: [sowId], references: [id], onDelete: Cascade)
+
+  @@unique([sowId, date])
+  @@map("sow_daily_prices")
 }
 
 model AppConfig {

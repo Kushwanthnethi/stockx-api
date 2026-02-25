@@ -16,6 +16,8 @@ import { FyersService } from './fyers.service';
 import { FyersController } from './fyers.controller';
 import { StocksGateway } from './stocks.gateway';
 import { FyersSocketService } from './fyers-socket.service';
+import { SowReportService } from './sow-report.service';
+import { MailService } from '../services/mail.service';
 
 @Module({
   imports: [PrismaModule, ConfigModule],
@@ -30,7 +32,10 @@ import { FyersSocketService } from './fyers-socket.service';
     FyersService,
     StocksGateway,
     FyersSocketService,
+    SowReportService,
+    MailService,
   ],
   exports: [StocksService, AIConfigService, YahooFinanceService, FyersService],
 })
 export class StocksModule { }
+

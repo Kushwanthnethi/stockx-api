@@ -35,4 +35,38 @@ export class MailService {
             return false;
         }
     }
+
+    async sendEmailWithAttachment(
+        to: string,
+        subject: string,
+        html: string,
+        attachmentBuffer: Buffer,
+        filename: string,
+    ): Promise<boolean> {
+        try {
+            const { data, error } = await this.resend.emails.send({
+                from: `StocksX <${this.fromEmail}>`,
+                to: [to],
+                subject: subject,
+                html: html,
+                attachments: [
+                    {
+                        filename,
+                        content: attachmentBuffer,
+                    },
+                ],
+            });
+
+            if (error) {
+                this.logger.error(`Failed to send email with attachment to ${to}: ${error.message}`);
+                return false;
+            }
+
+            this.logger.log(`Email with attachment sent to ${to}. ID: ${data?.id}`);
+            return true;
+        } catch (e) {
+            this.logger.error(`Exception sending email with attachment to ${to}: ${e.message}`);
+            return false;
+        }
+    }
 }

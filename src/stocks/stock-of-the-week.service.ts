@@ -389,14 +389,14 @@ export class StockOfTheWeekService implements OnModuleInit {
   async getLatestPick() {
     return this.prisma.stockOfTheWeek.findFirst({
       orderBy: { weekStartDate: 'desc' },
-      include: { stock: true },
+      include: { stock: true, dailyPrices: { orderBy: { date: 'asc' } } },
     });
   }
 
   async getArchive() {
     return this.prisma.stockOfTheWeek.findMany({
       orderBy: { weekStartDate: 'desc' },
-      include: { stock: true },
+      include: { stock: true, dailyPrices: { orderBy: { date: 'asc' } } },
       skip: 1, // Skip the latest one (current)
     });
   }

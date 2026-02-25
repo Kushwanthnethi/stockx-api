@@ -231,6 +231,10 @@ export class StocksService {
                 symbol,
                 regularMarketPrice: price,
                 regularMarketDayHigh: high,
+                regularMarketOpen: q.open_price || q.v?.open_price || price,
+                regularMarketDayLow: q.low_price || q.v?.low_price || q.l || q.v?.l || price,
+                regularMarketVolume: q.vol_traded_today || q.v?.vol_traded_today || 0,
+                regularMarketPreviousClose: q.prev_close_price || q.v?.prev_close_price || price,
               });
             }
           }
@@ -252,6 +256,10 @@ export class StocksService {
               symbol: q.symbol,
               regularMarketPrice: q.regularMarketPrice,
               regularMarketDayHigh: q.regularMarketDayHigh,
+              regularMarketOpen: q.regularMarketOpen,
+              regularMarketDayLow: q.regularMarketDayLow,
+              regularMarketVolume: q.regularMarketVolume,
+              regularMarketPreviousClose: q.regularMarketPreviousClose,
             });
             // Update DB
             await this.prisma.stock.update({

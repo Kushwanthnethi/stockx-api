@@ -18,7 +18,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // This seems correct if 
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly usersService: UsersService) { }
 
   @Post()
   create(@Body() createUserDto: any) {
@@ -111,5 +111,14 @@ export class UsersController {
   @Get(':id/visits')
   async getVisits(@Param('id') id: string) {
     return this.usersService.getUserVisits(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/preferences')
+  async updatePreferences(
+    @Request() req: any,
+    @Body() body: { receiveReport?: boolean },
+  ) {
+    return this.usersService.updatePreferences(req.user.id, body);
   }
 }
