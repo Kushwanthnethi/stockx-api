@@ -1655,8 +1655,14 @@ export class StocksService {
 
           if (fyersHistory1d && fyersHistory1d.length > 0) {
             console.log(`[History] Using Fyers (1m) for ${symbol} 1d view. Points: ${fyersHistory1d.length}`);
-            // Fyers returns array: [timestamp, open, high, low, close, volume]
-            return fyersHistory1d.map((c: any) => ({
+
+            const uniqueMap = new Map();
+            for (const c of fyersHistory1d) {
+              uniqueMap.set(c[0], c);
+            }
+            const sortedUnique = Array.from(uniqueMap.values()).sort((a: any, b: any) => a[0] - b[0]);
+
+            return sortedUnique.map((c: any) => ({
               date: new Date(c[0] * 1000).toISOString(),
               price: c[4], // close
               open: c[1],
@@ -1680,8 +1686,14 @@ export class StocksService {
 
           if (fyersHistory1w && fyersHistory1w.length > 0) {
             console.log(`[History] Using Fyers (5m) for ${symbol} 1w view. Points: ${fyersHistory1w.length}`);
-            // Fyers returns array: [timestamp, open, high, low, close, volume]
-            return fyersHistory1w.map((c: any) => ({
+
+            const uniqueMap = new Map();
+            for (const c of fyersHistory1w) {
+              uniqueMap.set(c[0], c);
+            }
+            const sortedUnique = Array.from(uniqueMap.values()).sort((a: any, b: any) => a[0] - b[0]);
+
+            return sortedUnique.map((c: any) => ({
               date: new Date(c[0] * 1000).toISOString(),
               price: c[4], // close
               open: c[1],
