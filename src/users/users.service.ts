@@ -260,4 +260,12 @@ export class UsersService {
       count,
     }));
   }
+
+  async updatePassword(email: string, rawPassword: string) {
+    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    return this.prisma.user.update({
+      where: { email },
+      data: { passwordHash },
+    });
+  }
 }
