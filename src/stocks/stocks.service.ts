@@ -490,7 +490,13 @@ export class StocksService {
         // or if it's been more than 24 hours (fundamentals don't change fast).
         let timeSeriesData = null;
         const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const needsFundamentals = !stock?.returnOnCapitalEmployed || (stock?.lastUpdated < oneDayAgo);
+        // Trigger fundamentals fetch if ANY key metric is missing or data is >24h stale
+        const needsFundamentals = !stock?.returnOnCapitalEmployed
+          || !stock?.eps
+          || !stock?.returnOnEquity
+          || !stock?.bookValuePerShare
+          || !stock?.grossMargin
+          || (stock?.lastUpdated < oneDayAgo);
 
         if (needsFundamentals && (!isIndex)) {
           this.logger.debug(`Fetching time-series fundamentals for ${querySymbol}...`);
