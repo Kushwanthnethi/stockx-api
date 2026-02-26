@@ -1508,54 +1508,10 @@ export class StocksService {
   async getTrending() {
     const symbols = ['RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'INFY.NS'];
     try {
-      const fyersSymbols = symbols.map(s => SymbolMapper.toFyers(s));
-      const fyersQuotes = await this.fyersService.getQuotes(fyersSymbols);
-
-      const results = await Promise.all(
-        symbols.map(async (symbol) => {
-          try {
-            const fyersSymbol = SymbolMapper.toFyers(symbol);
-            const fyersQuote = fyersQuotes?.find((q: any) => q.n === fyersSymbol || q.s === fyersSymbol);
-
-            // Check DB first for metadata preservation
-            const dbStock = await this.prisma.stock.findUnique({
-              where: { symbol },
-            });
-
-            if (fyersQuote) {
-              const price = fyersQuote.lp || fyersQuote.v?.lp || 0;
-              const changePercent = fyersQuote.chp || fyersQuote.v?.chp || 0;
-
-              const dataToUpdate = {
-                currentPrice: price,
-                changePercent: changePercent,
-                lastUpdated: new Date(),
-              };
-
-              return await this.prisma.stock.upsert({
-                where: { symbol },
-                update: dataToUpdate,
-                create: {
-                  symbol,
-                  companyName: dbStock?.companyName || symbol,
-                  exchange: 'NSE',
-                  ...dataToUpdate,
-                },
-              });
-            }
-
-            // If Fyers quote is missing, just return the DB stock if it exists
-            return dbStock || null;
-          } catch (e) {
-            console.error(`Error fetching ${symbol}`, e);
-            return null;
-          }
-        }),
-      );
-
-      return results.filter((r) => r !== null);
+      const results = await this.getBatch(symbols);
+      return results;
     } catch (error) {
-      console.error('Failed to get trending stocks', error);
+      this.logger.error('Failed to get trending stocks', error);
       return [];
     }
   }
