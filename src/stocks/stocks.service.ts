@@ -1544,38 +1544,8 @@ export class StocksService {
               });
             }
 
-            // Fallback to Yahoo if Fyers quote is missing
-            const yahooFinance = await this.getYahooClient();
-            const data = await yahooFinance.quoteSummary(symbol, {
-              modules: ['price', 'summaryDetail', 'defaultKeyStatistics'],
-            });
-
-            if (!data || !data.price) return dbStock || null;
-
-            const price = data.price.regularMarketPrice;
-            const changePercent = (data.price.regularMarketChangePercent || 0) * 100;
-
-            const dataToUpdate = {
-              currentPrice: price,
-              changePercent: changePercent,
-              marketCap: data.summaryDetail?.marketCap,
-              peRatio: data.summaryDetail?.trailingPE,
-              pbRatio: data.defaultKeyStatistics?.priceToBook,
-              high52Week: data.summaryDetail?.fiftyTwoWeekHigh,
-              low52Week: data.summaryDetail?.fiftyTwoWeekLow,
-              lastUpdated: new Date(),
-            };
-
-            return await this.prisma.stock.upsert({
-              where: { symbol },
-              update: dataToUpdate,
-              create: {
-                symbol,
-                companyName: data.price.shortName || symbol,
-                exchange: data.price.exchangeName || 'NSE',
-                ...dataToUpdate,
-              },
-            });
+            // If Fyers quote is missing, just return the DB stock if it exists
+            return dbStock || null;
           } catch (e) {
             console.error(`Error fetching ${symbol}`, e);
             return null;

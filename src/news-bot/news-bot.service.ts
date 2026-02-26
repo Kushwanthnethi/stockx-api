@@ -174,14 +174,14 @@ export class NewsBotService {
             }
 
             this.logger.log(`Found ${freshItems.length} fresh news items. Generating consolidated pulse post.`);
-            await this.generateAndPostConsolidated(freshItems, botUser.id, skipIndices, strictImportanceFilter);
+            await this.generateAndPostConsolidated(freshItems, botUser.id, skipIndices, strictImportanceFilter, lastBotPosts[0]?.content);
 
         } catch (error) {
             this.logger.error('Failed to process news feed', error);
         }
     }
 
-    private async generateAndPostConsolidated(items: any[], userId: string, skipIndices: boolean, strictImportanceFilter: boolean): Promise<boolean> {
+    private async generateAndPostConsolidated(items: any[], userId: string, skipIndices: boolean, strictImportanceFilter: boolean, lastPostContent?: string): Promise<boolean> {
         // Prepare news context for AI
         const newsContext = items.map((item, idx) => `
         ITEM ${idx + 1}:
@@ -206,6 +206,17 @@ export class NewsBotService {
             `
             : ``;
 
+        const avoidanceInstruction = lastPostContent
+            ? `
+            IMPORTANT REDUNDANCY CHECK:
+            Here is the content of our PREVIOUS post:
+            """
+            ${lastPostContent}
+            """
+            DO NOT output any news items that cover the EXACT SAME topics or stories as the previous post (e.g. if we already posted about specific company earnings, funding, or valuations, completely ignore those stories).
+            You MUST wait to group fresh news. If you cannot find at least 3 completely fresh and non-redundant news stories in the list, you MUST output exactly "SKIP". Do not post just 1 or 2 items.`
+            : ``;
+
         const prompt = `
         Act as "StocksX Bot", a premium AI market analyst.
         Your goal is to provide a "Market Pulse" update based on the news below.
@@ -213,6 +224,8 @@ export class NewsBotService {
         ${indexInstruction}
 
         ${weekendInstruction}
+
+        ${avoidanceInstruction}
 
         NEWS ITEMS:
         ${newsContext}
