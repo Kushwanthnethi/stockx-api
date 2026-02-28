@@ -119,18 +119,25 @@ export class StockOfTheWeekService implements OnModuleInit {
       }
       this.logger.log(`Found ${candidates.length} candidates out of ${allStocks.length} total stocks.`);
 
-      // 2. Score & Shortlist Finalists
+      // 2. Score & Shortlist Finalists (Multi-Factor Model)
       const scored = candidates.map((stock) => {
-        const score = this.calculateConvictionScore(stock);
-        return { ...stock, score };
+        const { total, pillars } = this.calculateConvictionScore(stock);
+        return { ...stock, score: total, pillars };
       });
 
-      // Sort by score desc and take TOP 5
+      // Sort by score desc and take TOP 7
       scored.sort((a, b) => b.score - a.score);
-      const finalists = scored.slice(0, 5);
+      const finalists = scored.slice(0, 7);
+
+      // Log pillar-wise breakdown for each finalist
+      for (const f of finalists) {
+        this.logger.log(
+          `📊 ${f.symbol} [${f.score}/100] — Prof:${f.pillars.profitability} Grw:${f.pillars.growth} Val:${f.pillars.valuation} Hlth:${f.pillars.financialHealth} Mom:${f.pillars.momentum} QBonus:${f.pillars.qualityBonus} MoS:${f.pillars.mosBonus}`,
+        );
+      }
 
       this.logger.log(
-        `Top 5 Finalists Identified: ${finalists.map((f) => f.symbol).join(', ')}`,
+        `Top 7 Finalists Identified: ${finalists.map((f) => `${f.symbol}(${f.score})`).join(', ')}`,
       );
 
       // 3. AI Decision Phase
@@ -145,7 +152,7 @@ export class StockOfTheWeekService implements OnModuleInit {
           winningPick =
             finalists.find((f) => f.symbol === decision.symbol) || finalists[0];
           finalNarrative = decision.narrative;
-          finalScore = decision.score || winningPick.score;
+          finalScore = decision.score || winningPick.score as number;
           this.logger.log(
             `🤖 AI Overruled Math. Winner: ${winningPick.symbol} (Score: ${finalScore})`,
           );
@@ -154,12 +161,12 @@ export class StockOfTheWeekService implements OnModuleInit {
           winningPick = finalists[0];
           // Generate basic narrative as fallback
           finalNarrative = `Strong fundamental pick in the ${winningPick.sector} sector with solid ROE of ${(winningPick.returnOnEquity * 100).toFixed(1)}%.`;
-          finalScore = winningPick.score;
+          finalScore = winningPick.score as number;
         }
       } else {
         winningPick = finalists[0];
         finalNarrative = `Strong fundamental pick in the ${winningPick.sector} sector with solid ROE of ${(winningPick.returnOnEquity * 100).toFixed(1)}% (AI Unavailable).`;
-        finalScore = winningPick.score;
+        finalScore = winningPick.score as number;
       }
 
       // 4. Save to DB
@@ -196,26 +203,125 @@ export class StockOfTheWeekService implements OnModuleInit {
     }
   }
 
-  private calculateConvictionScore(stock: any): number {
-    let score = 50; // Base score
+  /** Clamp a value between min and max, then scale to 0–maxPts */
+  private clamp(value: number, min: number, max: number, maxPts: number): number {
+    if (value <= min) return 0;
+    if (value >= max) return maxPts;
+    return ((value - min) / (max - min)) * maxPts;
+  }
 
-    // Fundamentals (40%)
-    if (stock.returnOnEquity > 15) score += 10;
-    if (stock.returnOnEquity > 20) score += 5;
-    if (stock.profitMargins > 0.15) score += 10;
-    if (stock.revenueGrowth > 0.1) score += 5;
+  /** Inverse clamp: lower values score higher */
+  private clampInverse(value: number, idealLow: number, badHigh: number, maxPts: number): number {
+    if (value <= idealLow) return maxPts;
+    if (value >= badHigh) return 0;
+    return ((badHigh - value) / (badHigh - idealLow)) * maxPts;
+  }
 
-    // Valuation (30%)
-    // Assuming sector PE generic check (e.g. < 25 is good, but varies by sector)
-    if (stock.peRatio < 25 && stock.peRatio > 0) score += 10;
-    if (stock.pegRatio && stock.pegRatio < 1.5) score += 10;
+  /** Sweet-spot clamp: values in middle range score highest */
+  private clampSweetSpot(value: number, low: number, idealLow: number, idealHigh: number, high: number, maxPts: number): number {
+    if (value >= idealLow && value <= idealHigh) return maxPts;
+    if (value < idealLow) return this.clamp(value, low, idealLow, maxPts);
+    return this.clampInverse(value, idealHigh, high, maxPts);
+  }
 
-    // Momentum / Tech (30%)
-    if (stock.currentPrice > stock.high52Week * 0.9) score += 10; // Near High
-    if (stock.changePercent > 0) score += 5;
+  private calculateConvictionScore(stock: any): { total: number; pillars: Record<string, number> } {
+    // ============================
+    // PILLAR 1: PROFITABILITY (25 pts max)
+    // ============================
+    const roe = (stock.returnOnEquity ?? 0) * 100; // Convert decimal to %
+    const profitMargin = (stock.profitMargins ?? 0) * 100;
+    const operatingMargin = (stock.operatingMargins ?? 0) * 100;
 
-    // Cap at 99
-    return Math.min(Math.floor(score), 99);
+    const p1_roe = this.clamp(roe, 0, 25, 10);           // 0–25% → 0–10 pts
+    const p1_profit = this.clamp(profitMargin, 0, 25, 8); // 0–25% → 0–8 pts
+    const p1_opMargin = this.clamp(operatingMargin, 0, 30, 7); // 0–30% → 0–7 pts
+    const pillar1 = p1_roe + p1_profit + p1_opMargin;
+
+    // ============================
+    // PILLAR 2: GROWTH (20 pts max)
+    // ============================
+    const revGrowth = (stock.revenueGrowth ?? 0) * 100;
+    const earnGrowth = (stock.earningsGrowth ?? 0) * 100;
+    const epsGrowth = (stock.epsGrowth ?? 0) * 100;
+
+    const p2_rev = this.clamp(revGrowth, 0, 30, 8);      // 0–30% → 0–8 pts
+    const p2_earn = this.clamp(earnGrowth, -10, 40, 7);   // -10–40% → 0–7 pts
+    const p2_eps = this.clamp(epsGrowth, 0, 30, 5);       // 0–30% → 0–5 pts
+    const pillar2 = p2_rev + p2_earn + p2_eps;
+
+    // ============================
+    // PILLAR 3: VALUATION (20 pts max)
+    // ============================
+    const pe = stock.peRatio ?? 50;
+    const peg = stock.pegRatio ?? 3;
+    const evEbitda = stock.evEbitda ?? 30;
+
+    // Sector-aware PE scoring: tech/pharma tolerate higher PE
+    const sector = (stock.sector || '').toLowerCase();
+    const isGrowthSector = ['technology', 'healthcare', 'consumer cyclical'].some(s => sector.includes(s));
+    const peMax = isGrowthSector ? 40 : 25; // Growth sectors get wider PE band
+
+    const p3_pe = pe > 0 ? this.clampInverse(pe, 5, peMax, 8) : 0;  // Lower PE → higher score
+    const p3_peg = peg > 0 ? this.clampInverse(peg, 0.5, 2.5, 6) : 0; // PEG < 0.5 = max, > 2.5 = 0
+    const p3_evEbitda = evEbitda > 0 ? this.clampInverse(evEbitda, 5, 25, 6) : 0;
+    const pillar3 = p3_pe + p3_peg + p3_evEbitda;
+
+    // ============================
+    // PILLAR 4: FINANCIAL HEALTH (20 pts max)
+    // ============================
+    const debtToEquity = stock.debtToEquity ?? 200;
+    const currentRatio = stock.currentRatio ?? 0;
+    const interestCoverage = stock.interestCoverageRatio ?? 0;
+    const fcfMargin = (stock.fcfMargin ?? 0) * 100;
+
+    const p4_de = this.clampInverse(debtToEquity, 0, 200, 6);    // D/E: 0 = best, 200+ = worst
+    const p4_cr = this.clampSweetSpot(currentRatio, 0.5, 1.2, 3.0, 5.0, 5); // Sweet spot 1.2–3.0
+    const p4_ic = this.clamp(interestCoverage, 0, 10, 5);         // Higher is better
+    const p4_fcf = this.clamp(fcfMargin, -5, 20, 4);              // Positive FCF margin is good
+    const pillar4 = p4_de + p4_cr + p4_ic + p4_fcf;
+
+    // ============================
+    // PILLAR 5: MOMENTUM & TECHNICALS (15 pts max)
+    // ============================
+    const high52 = stock.high52Week || stock.currentPrice;
+    const proximity = high52 > 0 ? (stock.currentPrice / high52) * 100 : 0; // % of 52W high
+    const changePct = stock.changePercent ?? 0;
+    const divYield = (stock.dividendYield ?? 0) * 100;
+
+    const p5_proximity = this.clamp(proximity, 60, 100, 7);  // 60–100% of 52W high → 0–7 pts
+    const p5_change = this.clamp(changePct, -5, 5, 5);       // -5% to +5% → 0–5 pts
+    const p5_div = this.clamp(divYield, 0, 4, 3);            // 0–4% yield → 0–3 pts
+    const pillar5 = p5_proximity + p5_change + p5_div;
+
+    // ============================
+    // BONUS POINTS
+    // ============================
+    // Quality Trifecta: ROE > 15%, D/E < 1, positive FCF
+    const qualityBonus = (roe > 15 && debtToEquity < 100 && fcfMargin > 0) ? 3 : 0;
+
+    // Margin of Safety: Price below Graham Number or Intrinsic Value
+    const grahamSafe = stock.grahamNumber && stock.currentPrice < stock.grahamNumber;
+    const intrinsicSafe = stock.intrinsicValue && stock.currentPrice < stock.intrinsicValue;
+    const mosBonus = (grahamSafe || intrinsicSafe) ? 2 : 0;
+
+    // ============================
+    // TOTAL
+    // ============================
+    const rawTotal = pillar1 + pillar2 + pillar3 + pillar4 + pillar5 + qualityBonus + mosBonus;
+    const total = Math.min(Math.round(rawTotal), 99);
+
+    return {
+      total,
+      pillars: {
+        profitability: Math.round(pillar1 * 10) / 10,
+        growth: Math.round(pillar2 * 10) / 10,
+        valuation: Math.round(pillar3 * 10) / 10,
+        financialHealth: Math.round(pillar4 * 10) / 10,
+        momentum: Math.round(pillar5 * 10) / 10,
+        qualityBonus,
+        mosBonus,
+      },
+    };
   }
 
   private async decideWinnerWithAI(
@@ -233,7 +339,7 @@ export class StockOfTheWeekService implements OnModuleInit {
         const news = await this.stocksService.getStockNews(f.symbol);
         this.logger.log(`Found ${news?.length || 0} news items for ${f.symbol}`);
         const topNews = news
-          .slice(0, 2)
+          .slice(0, 3)
           .map(
             (n: any) =>
               `- ${n.title} (${new Date(n.publishedAt).toLocaleDateString()})`,
@@ -246,45 +352,83 @@ export class StockOfTheWeekService implements OnModuleInit {
       }),
     );
 
-    const prompt = `
-        Act as a Senior Portfolio Manager for the Indian Stock Market.
-        I have mathematically shortlisted 5 strong candidates.
-        
-        Your Goal: Review their financials AND recent news, then pick the ONE single best stock for a **4-Week Holding Period (approx. 1 Month)**.
-        
-        THE CANDIDATES:
-        ${enrichedFinalists
+    const prompt = `You are a Senior Portfolio Manager at a top-tier Indian asset management firm.
+You have access to a proprietary multi-factor quantitative model that has scored 7 candidates across 5 pillars:
+- **Profitability** (25pts): ROE, Net Margins, Operating Margins
+- **Growth** (20pts): Revenue, Earnings, and EPS growth rates
+- **Valuation** (20pts): PE ratio (sector-adjusted), PEG, EV/EBITDA
+- **Financial Health** (20pts): Debt/Equity, Current Ratio, Interest Coverage, FCF Margin
+- **Momentum** (15pts): 52-Week High Proximity, Recent Trend, Dividend Yield
+- **Bonus**: Quality Trifecta (+3 for ROE>15% + low debt + positive FCF), Margin of Safety (+2 if price < intrinsic value)
+
+## YOUR TASK
+Select the **ONE best stock** for a **4-Week Holding Period** from these 7 candidates.
+
+## THE CANDIDATES
+${enrichedFinalists
         .map(
           (f) => `
-        [${f.symbol}] ${f.companyName}
-        - Price: ₹${f.currentPrice}, Trend: ${f.changePercent > 0 ? '+' : ''}${f.changePercent.toFixed(2)}%
-        - PE: ${f.peRatio?.toFixed(1)}, ROE: ${(f.returnOnEquity * 100).toFixed(1)}%
-        - Sector: ${f.sector}
-        - Recent News/Buzz:
-        ${f.newsSnippet}
-        `,
+### [${f.symbol}] ${f.companyName}
+| Metric | Value |
+|--------|-------|
+| Quant Score | **${f.score}/100** |
+| Profitability | ${f.pillars?.profitability ?? 'N/A'}/25 |
+| Growth | ${f.pillars?.growth ?? 'N/A'}/20 |
+| Valuation | ${f.pillars?.valuation ?? 'N/A'}/20 |
+| Financial Health | ${f.pillars?.financialHealth ?? 'N/A'}/20 |
+| Momentum | ${f.pillars?.momentum ?? 'N/A'}/15 |
+| Bonuses | Quality=${f.pillars?.qualityBonus ?? 0}, MoS=${f.pillars?.mosBonus ?? 0} |
+| Price | Rs.${f.currentPrice} (${f.changePercent > 0 ? '+' : ''}${f.changePercent.toFixed(2)}%) |
+| PE / ROE | ${f.peRatio?.toFixed(1)} / ${(f.returnOnEquity * 100).toFixed(1)}% |
+| D/E / EV/EBITDA | ${f.debtToEquity?.toFixed(1) ?? 'N/A'} / ${f.evEbitda?.toFixed(1) ?? 'N/A'} |
+| Op. Margin | ${f.operatingMargins ? (f.operatingMargins * 100).toFixed(1) + '%' : 'N/A'} |
+| Sector | ${f.sector} |
+| Near 52W High? | ${f.high52Week && f.currentPrice > f.high52Week * 0.9 ? 'YES - CAUTION' : 'No'} |
+
+**Recent News:** ${f.newsSnippet}
+`,
         )
-        .join('\n------------------------\n')}
-        
-        INSTRUCTIONS:
-        1. Focus on the next 30 days. Look for catalysts (Results, Monthly Expiry trends, Sector rotation) that will play out over a month.
-        2. Compare them. Look for "Red Flags" in the news.
-        3. Pick the WINNER.
-        4. Write a professional "Investment Thesis" for the winner (300 words).
-        
-        OUTPUT FORMAT (JSON ONLY):
-        {
-            "winner_symbol": "RELIANCE.NS",
-            "conviction_score": 92,
-            "thesis_markdown": "1. **Investment Rationale**\n..."
-        }
-        
-        For the thesis_markdown, follow this structure:
-        1. **Investment Rationale** (Why this stock beat the others?)
-        2. **Technical Setup** (Price action & 30-day outlook)
-        3. **Key Risks**
-        4. **The Verdict** (Explicitly mention the 4-week horizon)
-        `;
+        .join('\\n---\\n')}
+
+## ANALYSIS FRAMEWORK (Follow these steps in order)
+
+**Step 1 - Elimination Round:**
+Eliminate any stocks with critical red flags: D/E above 150, negative operating margins, major negative news (governance scandal, regulatory action, earnings miss), or already at 52-week high with weak fundamentals (overbought trap).
+
+**Step 2 - News & Catalyst Scoring (IMPORTANT):**
+For EACH surviving candidate, assign a **News Score from 0 to 10** based on:
+- **Positive catalysts this week** (upcoming earnings, analyst upgrades, order wins, expansion news, policy tailwinds) → +2 to +4 pts each
+- **Sector momentum** (is this sector in favor right now? FII/DII buying trends) → +1 to +3 pts
+- **Negative signals** (downgrades, profit warnings, legal issues, sector headwinds) → -2 to -4 pts each
+- **Timeliness** (is this the RIGHT WEEK to enter this stock?) → +1 to +3 pts
+A stock with no significant news gets 3-4. A stock with strong positive catalysts this week gets 7-10. A stock with negative news gets 0-2.
+
+**Step 3 - Risk-Reward Assessment:**
+For remaining candidates evaluate: (a) Upside Potential - what catalyst drives price up in next 30 days? (b) Downside Risk - what could go wrong? (c) Conviction Level - how confident given data quality and news strength?
+
+**Step 4 - Final Selection:**
+Combine Quant Score + News Score to determine the final pick. A stock with Quant 65 + News 9 (=74) may beat a stock with Quant 80 + News 2 (=82) if the catalyst is time-sensitive. Use your judgment.
+
+## OUTPUT FORMAT (STRICT JSON ONLY - no extra text before or after):
+{
+    "winner_symbol": "SYMBOL.NS",
+    "conviction_score": 85,
+    "news_scores": {
+        "SYMBOL1.NS": {"score": 7, "reason": "Strong Q3 results expected"},
+        "SYMBOL2.NS": {"score": 3, "reason": "No major catalyst"},
+        "SYMBOL3.NS": {"score": 8, "reason": "Sector rotation + policy boost"}
+    },
+    "thesis_markdown": "1. **Why This Stock?**\\n..."
+}
+
+## THESIS STRUCTURE (for thesis_markdown, write approximately 350 words):
+1. **Why This Stock?** - Comparative analysis: why this beat the other 6. Reference both quant scores AND your news scores.
+2. **This Week's Edge** - What makes THIS WEEK the right time to pick this stock? Reference specific news items and your news score reasoning.
+3. **Fundamental Edge** - Profitability, growth trajectory, and balance sheet quality vs peers.
+4. **Technical View** - Current price action, support/resistance levels, momentum signals.
+5. **Risk Factors** - Top 2-3 risks that could invalidate the thesis.
+6. **The Verdict** - Clear 4-week outlook with expected return range and stop-loss rationale.
+`;
 
     try {
       // 2. Traffic Guard (Phase 2)
@@ -340,6 +484,13 @@ export class StockOfTheWeekService implements OnModuleInit {
       const thesis = data.thesis_markdown || data.narrative || data.thesis || data.investment_thesis || data.analysis || data.rationale;
 
       if (matchedStats && thesis) {
+        // Log AI's news scoring if available
+        if (data.news_scores) {
+          this.logger.log(`📰 AI News Scores:`);
+          for (const [sym, info] of Object.entries(data.news_scores as Record<string, { score: number; reason: string }>)) {
+            this.logger.log(`   ${sym}: ${info.score}/10 — ${info.reason}`);
+          }
+        }
         this.logger.log(`AI Selection Validated: ${matchedStats.symbol}. Thesis length: ${thesis.length}`);
         return {
           symbol: matchedStats.symbol,
