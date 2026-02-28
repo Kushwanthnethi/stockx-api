@@ -70,7 +70,54 @@ export class StockOfTheWeekService implements OnModuleInit {
   @Cron('30 6 * * 0')
   async handleWeeklySelection() {
     this.logger.log('Starting weekly stock selection process...');
+    await this.updatePastPerformance();
     await this.selectStockOfTheWeek();
+  }
+
+  async updatePastPerformance() {
+    this.logger.log('Checking for past SOW performance updates...');
+    const fourWeeksAgo = new Date();
+    fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+
+    // Find picks that are at least 4 weeks old and don't have a final price
+    const pendingPicks = await this.prisma.stockOfTheWeek.findMany({
+      where: {
+        weekStartDate: { lte: fourWeeksAgo },
+        finalPrice: null,
+      },
+    });
+
+    if (pendingPicks.length === 0) {
+      this.logger.log('No pending performance updates found.');
+      return;
+    }
+
+    // Fetch current Nifty 50 for benchmark
+    const nifty = await this.stocksService.findOne('NIFTY 50');
+    const currentNiftyPrice = nifty?.currentPrice || 0;
+
+    for (const pick of pendingPicks) {
+      try {
+        const stock = await this.stocksService.findOne(pick.stockSymbol);
+        if (stock && stock.currentPrice) {
+          const performancePct = ((stock.currentPrice - pick.priceAtSelection) / pick.priceAtSelection) * 100;
+
+          // Simplified benchmark: Compare current Nifty vs selection-time Nifty (might need historical Nifty too for perfect accuracy)
+          // For now, we'll just store the raw stock performance.
+
+          await this.prisma.stockOfTheWeek.update({
+            where: { id: pick.id },
+            data: {
+              finalPrice: stock.currentPrice,
+              performancePct: Math.round(performancePct * 100) / 100,
+            },
+          });
+          this.logger.log(`Updated performance for ${pick.stockSymbol}: ${performancePct.toFixed(2)}%`);
+        }
+      } catch (err) {
+        this.logger.error(`Failed to update performance for ${pick.stockSymbol}`, err);
+      }
+    }
   }
 
   private async generateNarrative(stock: any): Promise<string> {
@@ -140,14 +187,31 @@ export class StockOfTheWeekService implements OnModuleInit {
         `Top 7 Finalists Identified: ${finalists.map((f) => `${f.symbol}(${f.score})`).join(', ')}`,
       );
 
-      // 3. AI Decision Phase
+      // 3. Market Context & Technical Enrichment
+      const [nifty, enrichedFinalists] = await Promise.all([
+        this.stocksService.findOne('NIFTY 50'),
+        Promise.all(finalists.map(async (f) => {
+          const tech = await this.stocksService.getTechnicalAnalysis(f.symbol);
+          return { ...f, technicals: tech };
+        }))
+      ]);
+
+      const marketContext = {
+        niftyPrice: nifty?.currentPrice || 0,
+        niftyChange: nifty?.changePercent || 0,
+        mood: (nifty?.changePercent || 0) > 0.5 ? 'Bullish' : (nifty?.changePercent || 0) < -0.5 ? 'Bearish' : 'Neutral',
+      };
+
+      this.logger.log(`Market Context: ${marketContext.mood} (Nifty ${marketContext.niftyChange.toFixed(2)}%)`);
+
+      // 4. AI Decision Phase
       let winningPick;
       let finalNarrative;
       let finalScore;
 
       this.logger.log(`AI Exhausted Status: ${this.aiConfig.isAllExhausted}. Keys active: ${this.aiConfig.activeKeyCount}`);
       if (!this.aiConfig.isAllExhausted) {
-        const decision = await this.decideWinnerWithAI(finalists);
+        const decision = await this.decideWinnerWithAI(enrichedFinalists, marketContext);
         if (decision) {
           winningPick =
             finalists.find((f) => f.symbol === decision.symbol) || finalists[0];
@@ -326,13 +390,14 @@ export class StockOfTheWeekService implements OnModuleInit {
 
   private async decideWinnerWithAI(
     finalists: any[],
+    marketContext: { niftyPrice: number; niftyChange: number; mood: string },
     retryCount = 0,
   ): Promise<{ symbol: string; narrative: string; score: number } | null> {
     this.logger.log(
       `Gathering news for finalists: ${finalists.map(f => f.symbol).join(', ')}...${retryCount > 0 ? ' (Retry ' + retryCount + ')' : ''}`,
     );
 
-    // Fetch news for all 5 in parallel
+    // Fetch news for all 7 in parallel
     const enrichedFinalists = await Promise.all(
       finalists.map(async (f) => {
         this.logger.log(`Fetching news for finalist: ${f.symbol}`);
@@ -352,86 +417,102 @@ export class StockOfTheWeekService implements OnModuleInit {
       }),
     );
 
-    const prompt = `You are a Senior Portfolio Manager at a top-tier Indian asset management firm.
-You have access to a proprietary multi-factor quantitative model that has scored 7 candidates across 5 pillars:
-- **Profitability** (25pts): ROE, Net Margins, Operating Margins
-- **Growth** (20pts): Revenue, Earnings, and EPS growth rates
-- **Valuation** (20pts): PE ratio (sector-adjusted), PEG, EV/EBITDA
-- **Financial Health** (20pts): Debt/Equity, Current Ratio, Interest Coverage, FCF Margin
-- **Momentum** (15pts): 52-Week High Proximity, Recent Trend, Dividend Yield
-- **Bonus**: Quality Trifecta (+3 for ROE>15% + low debt + positive FCF), Margin of Safety (+2 if price < intrinsic value)
+    // Fetch AI Performance History for accountability
+    const pastPicks = await this.prisma.stockOfTheWeek.findMany({
+      where: { performancePct: { not: null } },
+      orderBy: { weekStartDate: 'desc' },
+      take: 4,
+    });
 
-## YOUR TASK
-Select the **ONE best stock** for a **4-Week Holding Period** from these 7 candidates.
+    const perfHistory = pastPicks.length > 0
+      ? pastPicks.map(p => `- ${p.stockSymbol}: ${(p.performancePct ?? 0) > 0 ? '+' : ''}${p.performancePct?.toFixed(2)}% return`).join('\\n')
+      : 'No historical performance data available yet (first few weeks).';
 
-## THE CANDIDATES
+    const avgPerf = pastPicks.length > 0
+      ? (pastPicks.reduce((sum, p) => sum + (p.performancePct ?? 0), 0) / pastPicks.length).toFixed(2)
+      : 'N/A';
+
+    const prompt = `You are an ELITE Institutional Fund Manager at a top-tier Indian asset management firm.
+Your goal is to select the single best "Stock of the Week" for a 4-week holding period.
+
+## MARKET CONTEXT (Critical — Factor this into your decision)
+- **Current Market Mood**: ${marketContext.mood}
+- **Nifty 50**: ${marketContext.niftyPrice.toFixed(0)} (${marketContext.niftyChange >= 0 ? '+' : ''}${marketContext.niftyChange.toFixed(2)}%)
+${marketContext.mood === 'Bearish' ? '⚠️ BEARISH MARKET: Prioritize defensive large-caps with strong cash flow and low beta.' : marketContext.mood === 'Bullish' ? '🟢 BULLISH MARKET: High-momentum growth stocks with strong catalysts are preferred.' : '⚪ NEUTRAL MARKET: Balance risk-reward carefully. Quality fundamentals take priority.'}
+
+## YOUR PAST PERFORMANCE (AI Accountability)
+${perfHistory}
+${pastPicks.length > 0 ? `Average Return: ${avgPerf}%` : ''}
+*Analyze why past picks succeeded or failed. Use this to refine your current selection.*
+
+## CANDIDATES (Top 7 Quant Finalists)
 ${enrichedFinalists
         .map(
-          (f) => `
-### [${f.symbol}] ${f.companyName}
+          (f, i) => `
+### ${i + 1}. [${f.symbol}] ${f.companyName} — Sector: ${f.sector}
 | Metric | Value |
 |--------|-------|
-| Quant Score | **${f.score}/100** |
+| **Quant Score** | **${f.score}/100** |
 | Profitability | ${f.pillars?.profitability ?? 'N/A'}/25 |
 | Growth | ${f.pillars?.growth ?? 'N/A'}/20 |
 | Valuation | ${f.pillars?.valuation ?? 'N/A'}/20 |
 | Financial Health | ${f.pillars?.financialHealth ?? 'N/A'}/20 |
 | Momentum | ${f.pillars?.momentum ?? 'N/A'}/15 |
 | Bonuses | Quality=${f.pillars?.qualityBonus ?? 0}, MoS=${f.pillars?.mosBonus ?? 0} |
-| Price | Rs.${f.currentPrice} (${f.changePercent > 0 ? '+' : ''}${f.changePercent.toFixed(2)}%) |
+| Price | ₹${f.currentPrice} (${f.changePercent > 0 ? '+' : ''}${f.changePercent.toFixed(2)}%) |
 | PE / ROE | ${f.peRatio?.toFixed(1)} / ${(f.returnOnEquity * 100).toFixed(1)}% |
 | D/E / EV/EBITDA | ${f.debtToEquity?.toFixed(1) ?? 'N/A'} / ${f.evEbitda?.toFixed(1) ?? 'N/A'} |
 | Op. Margin | ${f.operatingMargins ? (f.operatingMargins * 100).toFixed(1) + '%' : 'N/A'} |
-| Sector | ${f.sector} |
-| Near 52W High? | ${f.high52Week && f.currentPrice > f.high52Week * 0.9 ? 'YES - CAUTION' : 'No'} |
+| **RSI (14-day)** | ${f.technicals?.rsi?.toFixed(1) ?? 'N/A'} ${f.technicals?.rsi > 70 ? '🔴 OVERBOUGHT' : f.technicals?.rsi < 30 ? '🟢 OVERSOLD' : '⚪ Neutral'} |
+| **Trend** | ${f.technicals?.trend ?? 'N/A'} |
+| **Tech Signal** | ${f.technicals?.signal ?? 'N/A'} |
+| Near 52W High? | ${f.high52Week && f.currentPrice > f.high52Week * 0.9 ? '⚠️ YES' : 'No'} |
 
 **Recent News:** ${f.newsSnippet}
 `,
         )
         .join('\\n---\\n')}
 
-## ANALYSIS FRAMEWORK (Follow these steps in order)
+## ANALYSIS FRAMEWORK (Follow in order)
 
-**Step 1 - Elimination Round:**
-Eliminate any stocks with critical red flags: D/E above 150, negative operating margins, major negative news (governance scandal, regulatory action, earnings miss), or already at 52-week high with weak fundamentals (overbought trap).
+**Step 1 — Elimination Round:**
+Reject stocks with: D/E > 150, negative margins, major negative news, Technical Signal = SELL (unless deep-value reversal with RSI < 25), or at 52W high with weak fundamentals.
 
-**Step 2 - News & Catalyst Scoring (IMPORTANT):**
-For EACH surviving candidate, assign a **News Score from 0 to 10** based on:
-- **Positive catalysts this week** (upcoming earnings, analyst upgrades, order wins, expansion news, policy tailwinds) → +2 to +4 pts each
-- **Sector momentum** (is this sector in favor right now? FII/DII buying trends) → +1 to +3 pts
-- **Negative signals** (downgrades, profit warnings, legal issues, sector headwinds) → -2 to -4 pts each
-- **Timeliness** (is this the RIGHT WEEK to enter this stock?) → +1 to +3 pts
-A stock with no significant news gets 3-4. A stock with strong positive catalysts this week gets 7-10. A stock with negative news gets 0-2.
+**Step 2 — News & Catalyst Scoring (0-10 per stock):**
+For EACH surviving candidate, assign a **News Score from 0 to 10**:
+- Positive catalysts this week (earnings, upgrades, order wins) → +2 to +4 pts
+- Sector momentum (FII/DII buying trends) → +1 to +3 pts
+- Negative signals (downgrades, warnings) → -2 to -4 pts
+- Timeliness (RIGHT WEEK to enter?) → +1 to +3 pts
 
-**Step 3 - Risk-Reward Assessment:**
-For remaining candidates evaluate: (a) Upside Potential - what catalyst drives price up in next 30 days? (b) Downside Risk - what could go wrong? (c) Conviction Level - how confident given data quality and news strength?
+**Step 3 — Technical & Market Fit:**
+Does this stock's technical trend (RSI, BULLISH/BEARISH) align with the ${marketContext.mood} market context? A bearish stock in a bullish market = risky pick.
 
-**Step 4 - Final Selection:**
-Combine Quant Score + News Score to determine the final pick. A stock with Quant 65 + News 9 (=74) may beat a stock with Quant 80 + News 2 (=82) if the catalyst is time-sensitive. Use your judgment.
+**Step 4 — Final Selection:**
+Winner = Best combination of: Quant Score (40%) + News Score (30%) + Technical/Market Fit (30%). Use judgment.
 
-## OUTPUT FORMAT (STRICT JSON ONLY - no extra text before or after):
+## OUTPUT FORMAT (STRICT JSON ONLY — no text before or after):
 {
     "winner_symbol": "SYMBOL.NS",
     "conviction_score": 85,
     "news_scores": {
-        "SYMBOL1.NS": {"score": 7, "reason": "Strong Q3 results expected"},
-        "SYMBOL2.NS": {"score": 3, "reason": "No major catalyst"},
-        "SYMBOL3.NS": {"score": 8, "reason": "Sector rotation + policy boost"}
+        "SYM1.NS": {"score": 7, "reason": "Strong catalyst"},
+        "SYM2.NS": {"score": 3, "reason": "No major news"}
     },
     "thesis_markdown": "1. **Why This Stock?**\\n..."
 }
 
-## THESIS STRUCTURE (for thesis_markdown, write approximately 350 words):
-1. **Why This Stock?** - Comparative analysis: why this beat the other 6. Reference both quant scores AND your news scores.
-2. **This Week's Edge** - What makes THIS WEEK the right time to pick this stock? Reference specific news items and your news score reasoning.
-3. **Fundamental Edge** - Profitability, growth trajectory, and balance sheet quality vs peers.
-4. **Technical View** - Current price action, support/resistance levels, momentum signals.
-5. **Risk Factors** - Top 2-3 risks that could invalidate the thesis.
-6. **The Verdict** - Clear 4-week outlook with expected return range and stop-loss rationale.
+## THESIS STRUCTURE (~350 words):
+1. **Why This Stock?** — Why it beat the other 6. Reference Quant scores, News scores, AND Technical signals.
+2. **This Week's Edge** — Why NOW? Market mood (${marketContext.mood}) + specific catalysts this week.
+3. **Fundamental Edge** — Business quality vs peers.
+4. **Technical View** — RSI, trend analysis, support/resistance, entry zone.
+5. **Risk Factors** — Top 2-3 risks.
+6. **The Verdict** — 4-week outlook, expected return range, stop-loss.
 `;
 
     try {
-      // 2. Traffic Guard (Phase 2)
+      // Traffic Guard
       await this.aiConfig.waitForAvailability();
 
       const model = this.aiConfig.getModel({
@@ -457,8 +538,8 @@ Combine Quant Score + News Score to determine the final pick. A stock with Quant
         const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const cleanJson = jsonMatch[0]
-            .replace(/\\n/g, '\n') // Handle escaped newlines if any
-            .replace(/[\u0000-\u001F\u007F-\u009F]/g, ''); // Remove control characters
+            .replace(/\\n/g, '\n')
+            .replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
           data = JSON.parse(cleanJson);
         }
       } catch (parseError) {
@@ -471,7 +552,7 @@ Combine Quant Score + News Score to determine the final pick. A stock with Quant
         return null;
       }
 
-      // Validate symbol exists in our list (handle potential AI hallucination of symbol format)
+      // Validate symbol exists in our list
       const winnerSymbol = (data.winner_symbol || data.symbol || '').toUpperCase();
       this.logger.log(`AI selected symbol: ${winnerSymbol}`);
       const matchedStats = finalists.find(
@@ -484,14 +565,14 @@ Combine Quant Score + News Score to determine the final pick. A stock with Quant
       const thesis = data.thesis_markdown || data.narrative || data.thesis || data.investment_thesis || data.analysis || data.rationale;
 
       if (matchedStats && thesis) {
-        // Log AI's news scoring if available
+        // Log AI's news scoring
         if (data.news_scores) {
           this.logger.log(`📰 AI News Scores:`);
           for (const [sym, info] of Object.entries(data.news_scores as Record<string, { score: number; reason: string }>)) {
             this.logger.log(`   ${sym}: ${info.score}/10 — ${info.reason}`);
           }
         }
-        this.logger.log(`AI Selection Validated: ${matchedStats.symbol}. Thesis length: ${thesis.length}`);
+        this.logger.log(`✅ AI Selection Validated: ${matchedStats.symbol}. Thesis length: ${thesis.length}`);
         return {
           symbol: matchedStats.symbol,
           narrative: thesis,
@@ -528,7 +609,7 @@ Combine Quant Score + News Score to determine the final pick. A stock with Quant
             'Quota hit during selection. Key rotated. Retrying in 5s...',
           );
           await this.aiConfig.delay(5000);
-          return this.decideWinnerWithAI(finalists, retryCount + 1);
+          return this.decideWinnerWithAI(finalists, marketContext, retryCount + 1);
         }
       } else {
         this.logger.error('AI Decision Making Error', e);
