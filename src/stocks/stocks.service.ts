@@ -371,6 +371,8 @@ export class StocksService {
               const dataToUpdate = {
                 currentPrice: price,
                 changePercent: q.chp || q.v?.chp || 0,
+                highDay: q.h || q.v?.h || null,
+                lowDay: q.l || q.v?.l || null,
                 lastUpdated: new Date(),
               };
 
@@ -455,6 +457,8 @@ export class StocksService {
 
         const price = result.price?.regularMarketPrice;
         const previousClose = result.price?.regularMarketPreviousClose;
+        const dayHigh = result.price?.regularMarketDayHigh;
+        const dayLow = result.price?.regularMarketDayLow;
         // CRITICAL FIX: Do not overwrite with null/0 if we have an existing valid price
         const effectivePrice = price || previousClose || stock?.currentPrice || 0;
 
@@ -524,6 +528,8 @@ export class StocksService {
           pbRatio: computed.pb ?? getVal(pb) ?? stock?.pbRatio ?? null,
           high52Week: getVal(high52) ?? stock?.high52Week ?? null,
           low52Week: getVal(low52) ?? stock?.low52Week ?? null,
+          highDay: getVal(dayHigh) ?? stock?.highDay ?? null,
+          lowDay: getVal(dayLow) ?? stock?.lowDay ?? null,
           // Core Fields
           bookValue: getVal(bookValue) ?? stock?.bookValue ?? null,
           dividendYield: getVal(divYield) ?? stock?.dividendYield ?? null,
@@ -608,6 +614,8 @@ export class StocksService {
             pbRatio: stock?.pbRatio ?? null,
             high52Week: stock?.high52Week ?? null,
             low52Week: stock?.low52Week ?? null,
+            highDay: stock?.highDay ?? null,
+            lowDay: stock?.lowDay ?? null,
             bookValue: stock?.bookValue ?? null,
             dividendYield: stock?.dividendYield ?? null,
             returnOnEquity: stock?.returnOnEquity ?? null,
@@ -1146,8 +1154,7 @@ export class StocksService {
     }
   }
 
-
-
+  // ===================== UTILS =====================
   async findAll() {
     // Return all stocks in DB
     const stocks = await this.prisma.stock.findMany({
@@ -1517,10 +1524,12 @@ export class StocksService {
   }
   async getIndices() {
     try {
-      // Use findOne to leverage DB caching + auto-update logic
-      let nifty = await this.findOne('NIFTY 50');
-      let sensex = await this.findOne('SENSEX');
-      let banknifty = await this.findOne('NIFTY BANK');
+      // Fetch all indices in parallel to avoid cumulative delay
+      let [nifty, sensex, banknifty] = await Promise.all([
+        this.findOne('NIFTY 50'),
+        this.findOne('SENSEX'),
+        this.findOne('NIFTY BANK'),
+      ]);
 
       // CRITICAL FALLBACK: If DB is empty AND Yahoo fails, return static data
       if (!nifty) nifty = { symbol: 'NIFTY 50', currentPrice: 25700, changePercent: 0 } as any;

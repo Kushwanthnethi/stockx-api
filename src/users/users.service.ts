@@ -222,8 +222,11 @@ export class UsersService {
         create: {
           userId,
           visitDate: today,
+          count: 1,
         },
-        update: {}, // Do nothing if exists
+        update: {
+          count: { increment: 1 }
+        },
       });
     } catch (e) {
       // Ignore race conditions or errors
@@ -243,16 +246,16 @@ export class UsersService {
       },
       select: {
         visitDate: true,
+        count: true,
       },
     });
 
     // Grouping isn't strictly needed as we store one per day, but let's return counts just in case we change logic later
     // or just return dates. Front-end expects generic "count".
-    // Actually, since unique constraint is user+date, count is always 1 per date.
     const visitMap = new Map<string, number>();
     visits.forEach((v) => {
       const dateStr = v.visitDate.toISOString().split('T')[0];
-      visitMap.set(dateStr, 1);
+      visitMap.set(dateStr, v.count);
     });
 
     return Array.from(visitMap.entries()).map(([date, count]) => ({

@@ -56,6 +56,7 @@ model UserVisit {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
   visitDate DateTime @db.Date @map("visit_date")
+  count     Int      @default(1)
   createdAt DateTime @default(now()) @map("created_at")
 
   user      User     @relation(fields: [userId], references: [id])
@@ -140,6 +141,8 @@ model Stock {
   pbRatio       Float?  @map("pb_ratio")
   high52Week    Float?  @map("high_52_week")
   low52Week     Float?  @map("low_52_week")
+  highDay       Float?  @map("high_day")
+  lowDay        Float?  @map("low_day")
   
   // Extended Metrics (Screener)
   bookValue        Float? @map("book_value")
