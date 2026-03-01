@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async create(userId: string, actorId: string, type: string, postId?: string) {
     if (userId === actorId) return; // Don't notify self-actions
@@ -18,9 +18,14 @@ export class NotificationsService {
     });
   }
 
-  async findAll(userId: string) {
+  async findAll(userId: string, type?: string) {
+    const where: any = { userId };
+    if (type) {
+      where.type = type;
+    }
+
     return this.prisma.notification.findMany({
-      where: { userId },
+      where,
       orderBy: { createdAt: 'desc' },
       include: {
         actor: {
@@ -39,6 +44,26 @@ export class NotificationsService {
           },
         },
       },
+    });
+  }
+
+  async markAsRead(notificationId: string, userId: string) {
+    return this.prisma.notification.updateMany({
+      where: { id: notificationId, userId },
+      data: { read: true },
+    });
+  }
+
+  async markAllAsRead(userId: string) {
+    return this.prisma.notification.updateMany({
+      where: { userId, read: false },
+      data: { read: true },
+    });
+  }
+
+  async getUnreadCount(userId: string) {
+    return this.prisma.notification.count({
+      where: { userId, read: false },
     });
   }
 }
