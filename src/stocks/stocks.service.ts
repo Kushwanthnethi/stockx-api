@@ -1524,34 +1524,49 @@ export class StocksService {
   }
   async getIndices() {
     try {
-      // Fetch all indices in parallel to avoid cumulative delay
-      let [nifty, sensex, banknifty] = await Promise.all([
-        this.findOne('NIFTY 50'),
-        this.findOne('SENSEX'),
-        this.findOne('NIFTY BANK'),
-      ]);
+      // All major Indian indices — fetched in parallel via Promise.allSettled for fault tolerance
+      const indexSymbols = [
+        { query: 'NIFTY 50', label: 'NIFTY 50', fallbackPrice: 25700 },
+        { query: 'SENSEX', label: 'SENSEX', fallbackPrice: 82800 },
+        { query: 'NIFTY BANK', label: 'NIFTY BANK', fallbackPrice: 53000 },
+        { query: '^CNXIT', label: 'NIFTY IT', fallbackPrice: 37000 },
+        { query: '^CNXPHARMA', label: 'NIFTY PHARMA', fallbackPrice: 18000 },
+        { query: '^CNXAUTO', label: 'NIFTY AUTO', fallbackPrice: 23000 },
+        { query: '^CNXFMCG', label: 'NIFTY FMCG', fallbackPrice: 55000 },
+        { query: '^CNXMETAL', label: 'NIFTY METAL', fallbackPrice: 8500 },
+        { query: '^CNXREALTY', label: 'NIFTY REALTY', fallbackPrice: 900 },
+        { query: '^CNXENERGY', label: 'NIFTY ENERGY', fallbackPrice: 33000 },
+        { query: '^NSEMDCP50', label: 'NIFTY MIDCAP 50', fallbackPrice: 15000 },
+      ];
 
-      // CRITICAL FALLBACK: If DB is empty AND Yahoo fails, return static data
-      if (!nifty) nifty = { symbol: 'NIFTY 50', currentPrice: 25700, changePercent: 0 } as any;
-      if (!sensex) sensex = { symbol: 'SENSEX', currentPrice: 82800, changePercent: 0 } as any;
-      if (!banknifty) banknifty = { symbol: 'NIFTY BANK', currentPrice: 53000, changePercent: 0 } as any;
+      const settled = await Promise.allSettled(
+        indexSymbols.map(idx => this.findOne(idx.query))
+      );
 
-      const results = [nifty, sensex, banknifty];
+      const results: any[] = [];
+      for (let i = 0; i < settled.length; i++) {
+        const cfg = indexSymbols[i];
+        if (settled[i].status === 'fulfilled' && (settled[i] as any).value) {
+          results.push({ ...(settled[i] as any).value, _label: cfg.label });
+        } else {
+          // Fallback for failed/missing indices
+          results.push({
+            symbol: cfg.label,
+            currentPrice: cfg.fallbackPrice,
+            changePercent: 0,
+            change: 0,
+            _label: cfg.label,
+          });
+        }
+      }
 
       // Transform to match frontend expectation
-      return results.map((index: any) => {
-        let symbol = index.symbol;
-        if (symbol === '^NSEI' || symbol === 'NIFTY 50') symbol = 'NIFTY 50';
-        if (symbol === '^BSESN' || symbol === 'SENSEX') symbol = 'SENSEX';
-        if (symbol === '^NSEBANK' || symbol === 'NIFTY BANK' || symbol === 'NSEBANK') symbol = 'NIFTY BANK';
-
-        return {
-          symbol,
-          price: index.currentPrice || 0,
-          change: index.change || 0,
-          changePercent: index.changePercent || 0,
-        };
-      });
+      return results.map((index: any) => ({
+        symbol: index._label || index.symbol,
+        price: index.currentPrice || 0,
+        change: index.change || 0,
+        changePercent: index.changePercent || 0,
+      }));
     } catch (error) {
       console.error('Failed to get indices', error);
       return [];
