@@ -1584,16 +1584,25 @@ export class StocksService {
           // Attempt Fyers for high-resolution intraday (1 min)
           const fyersSymbol1d = SymbolMapper.toFyers(symbol);
           const today1d = new Date().toISOString().split('T')[0];
-          const yesterday1d = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+          // Look back 4 days to ensure we catch Friday data if it's Monday morning / Sunday
+          const past1d = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-          const fyersHistory1d = await this.fyersService.getHistory(fyersSymbol1d, '1', yesterday1d, today1d);
+          const fyersHistory1d = await this.fyersService.getHistory(fyersSymbol1d, '1', past1d, today1d);
 
           if (fyersHistory1d && fyersHistory1d.length > 0) {
             console.log(`[History] Using Fyers (1m) for ${symbol} 1d view. Points: ${fyersHistory1d.length}`);
 
             const uniqueMap = new Map();
+            // Since we queried 4 days, we only want the LAST trading day's data for the '1d' view
+            // Find the maximum date block
+            const maxDateObj = new Date(fyersHistory1d[fyersHistory1d.length - 1][0] * 1000);
+            const latestDayStr = maxDateObj.toISOString().split('T')[0];
+
             for (const c of fyersHistory1d) {
-              uniqueMap.set(c[0], c);
+              const cDateStr = new Date(c[0] * 1000).toISOString().split('T')[0];
+              if (cDateStr === latestDayStr) {
+                uniqueMap.set(c[0], c);
+              }
             }
             const sortedUnique = Array.from(uniqueMap.values()).sort((a: any, b: any) => a[0] - b[0]);
 
@@ -1615,7 +1624,8 @@ export class StocksService {
           // Fyers 5-min resolution for 1 week
           const fyersSymbol1w = SymbolMapper.toFyers(symbol);
           const today1w = new Date().toISOString().split('T')[0];
-          const weekAgo1w = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+          // Look back 10 days to guarantee exactly 5-7 trading days even with holidays
+          const weekAgo1w = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
           const fyersHistory1w = await this.fyersService.getHistory(fyersSymbol1w, '5', weekAgo1w, today1w);
 
