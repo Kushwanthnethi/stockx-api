@@ -38,7 +38,7 @@ export class StocksService {
         period1: '2023-01-01',
         module: 'financials',
         type: 'quarterly'
-      }, { validate: false });
+      }, { validateResult: false });
 
       // Robust check for response format
       if (Array.isArray(res)) {
@@ -57,13 +57,13 @@ export class StocksService {
       console.warn(`No time-series data for ${symbol}, trying quoteSummary fallbacks...`);
 
       try {
-        // Fallback 1: incomeStatementHistoryQuarterly
+        // Fallback 1: earnings and price (incomeStatementHistoryQuarterly is deprecated)
         const summary = await yf.quoteSummary(querySymbol, {
-          modules: ['incomeStatementHistoryQuarterly', 'earnings', 'price']
-        }, { validate: false }).catch(() => null);
+          modules: ['earnings', 'price']
+        }, { validateResult: false }).catch(() => null);
 
         if (summary) {
-          const history = summary.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+          const history: any[] = []; // Deprecated module removed, fallback to earnings
           if (history.length > 0) {
             return history.map((q: any) => {
               const getValue = (val: any) => (val?.raw !== undefined ? val.raw : val) || 0;
@@ -433,9 +433,6 @@ export class StocksService {
             'defaultKeyStatistics', // For PB, Book Value, Shares
             'financialData', // For EBITDA, Margins, Debt, Quick/Current Ratio
             'summaryProfile', // For Sector/Industry
-            'incomeStatementHistory',
-            'balanceSheetHistory',
-            'cashflowStatementHistory',
           ];
 
         // Fetch from Yahoo
@@ -1957,19 +1954,16 @@ export class StocksService {
     };
 
     // 1. Fetch Latest Statements (Prefer TimeSeries > Annual > Quarterly)
-    const incomeHistory = summary.incomeStatementHistory?.incomeStatementHistory
-      || summary.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
-    const latestIncome = incomeHistory[0] || {};
-    const prevIncome = incomeHistory[1] || {};
+    const incomeHistory: any[] = [];
+    const latestIncome: any = {};
+    const prevIncome: any = {};
 
-    const balanceHistory = summary.balanceSheetHistory?.balanceSheetStatements
-      || summary.balanceSheetHistoryQuarterly?.balanceSheetStatements || [];
-    const latestBalance = balanceHistory[0] || {};
-    const prevBalance = balanceHistory[1] || {};
+    const balanceHistory: any[] = [];
+    const latestBalance: any = {};
+    const prevBalance: any = {};
 
-    const cashflowHistory = summary.cashflowStatementHistory?.cashflowStatements
-      || summary.cashflowStatementHistoryQuarterly?.cashflowStatements || [];
-    const latestCashflow = cashflowHistory[0] || {};
+    const cashflowHistory: any[] = [];
+    const latestCashflow: any = {};
 
     // ===================== 2. EXTRACT BASE METRICS =====================
     // Income Statement
