@@ -182,14 +182,19 @@ export class NewsBotService {
     }
 
     private async generateAndPostConsolidated(items: any[], userId: string, skipIndices: boolean, strictImportanceFilter: boolean, lastPostContent?: string): Promise<boolean> {
-        // Prepare news context for AI
-        const newsContext = items.map((item, idx) => `
+        // Prepare news context for AI with LINK PLACEHOLDERS to prevent hallucinations
+        const linkMap = new Map<string, string>();
+        const newsContext = items.map((item, idx) => {
+            const placeholder = `[LINK_${idx + 1}]`;
+            linkMap.set(placeholder, item.link || '');
+            return `
         ITEM ${idx + 1}:
         TITLE: ${item.title}
         CONTENT: ${item.contentSnippet || ''}
-        LINK: ${item.link}
+        LINK: ${placeholder}
         SOURCE: ${item.source || 'News'}
-        `).join('\n------------------\n');
+        `;
+        }).join('\n------------------\n');
 
         const indexInstruction = skipIndices
             ? `IMPORTANT: DO NOT mention broad market indices ($NIFTY50, $SENSEX) in this update. We recently updated on them. Focus strictly on specific company news, sector movements (e.g. IT, Auto, Banks), and global cues.`
@@ -239,10 +244,7 @@ export class NewsBotService {
         - Use concise, professional financial language.
         - For each point, explain the *impact* on Indian investors.
         - Mention tickers as $TICKER (e.g. $HDFCBANK, $TSLA, $AAPL).
-        - End each bullet with [Read More](LINK).
-
-        Example Item:
-        • US Federal Reserve holds rates steady, signaling a positive cue for emerging markets. Impact: Banking stocks likely to see buying interest. 🌍 [Read More](...)
+        - End each bullet with [Read More](LINK_PLACEHOLDER) using the EXACT placeholder (e.g. [Read More]([LINK_1])).
         
         Output ONLY the content.
         `;
@@ -257,7 +259,7 @@ export class NewsBotService {
 
             const result = await model.generateContent(prompt);
             const response = await result.response;
-            const postContent = response.text().trim();
+            let postContent = response.text().trim();
 
             this.logger.debug(`[AI] Prompt sent: ${prompt}`);
             this.logger.debug(`[AI] Response received: ${postContent}`);
@@ -266,6 +268,14 @@ export class NewsBotService {
                 this.logger.log('AI filtered out news as unimportant. Skipping post.');
                 return false;
             }
+
+            // 5. Replace Placeholders back with actual links
+            linkMap.forEach((realLink, placeholder) => {
+                // Some AI might output [LINK_1] or just LINK_1 or ([LINK_1])
+                // We should be careful. The prompt says [Read More]([LINK_1])
+                // Let's replace the bracketed versions first
+                postContent = postContent.split(placeholder).join(realLink);
+            });
 
             // 6. Post to Feed
             await this.prisma.post.create({
