@@ -213,8 +213,8 @@ export class NewsBotService {
             """
             ${lastPostContent}
             """
-            DO NOT output any news items that cover the EXACT SAME topics or stories as the previous post (e.g. if we already posted about specific company earnings, funding, or valuations, completely ignore those stories).
-            You MUST wait to group fresh news. If you cannot find at least 3 completely fresh and non-redundant news stories in the list, you MUST output exactly "SKIP". Do not post just 1 or 2 items.`
+            DO NOT output any news items that cover the EXACT SAME topics or stories as the previous post. However, if there is a MAJOR new development (e.g., a massive market crash today resulting from previous tensions), you MAY post about it.
+            You MUST wait to group fresh news. If you cannot find at least 3 fresh, non-redundant, or significantly updated news stories, you MUST output exactly "SKIP". Do not post just 1 or 2 items.`
             : ``;
 
         const prompt = `
@@ -258,6 +258,9 @@ export class NewsBotService {
             const result = await model.generateContent(prompt);
             const response = await result.response;
             const postContent = response.text().trim();
+
+            this.logger.debug(`[AI] Prompt sent: ${prompt}`);
+            this.logger.debug(`[AI] Response received: ${postContent}`);
 
             if (!postContent || postContent.toUpperCase() === 'SKIP') {
                 this.logger.log('AI filtered out news as unimportant. Skipping post.');
