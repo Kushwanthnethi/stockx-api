@@ -55,24 +55,48 @@ export class FyersSocketService implements OnModuleInit {
             this.socket.on('connect', () => {
                 this.isConnected = true;
                 this.logger.log('Fyers DataSocket Connected ✅');
-                this.syncSubscriptions(true);
+                // Set a small delay before syncing subscriptions to let connection stabilize
+                setTimeout(() => this.syncSubscriptions(true), 2000);
             });
 
             this.socket.on('message', (message: any) => {
                 this.handleMessage(message);
             });
 
+            // Catch WS errors to prevent app crashes (e.g., 502 Bad Gateway)
             this.socket.on('error', (error: any) => {
-                this.logger.error('Fyers DataSocket Error:', error);
+                this.logger.warn(`Fyers DataSocket Error Caught: ${error.message || error}`);
+                this.isConnected = false;
+                // Wait 10s before attempting reconnect automatically
+                setTimeout(() => {
+                    if (!this.isConnected) {
+                        this.logger.log('Attempting manual reconnect after error...');
+                        this.socket?.connect();
+                    }
+                }, 10000);
             });
 
             this.socket.on('close', () => {
                 this.isConnected = false;
                 this.logger.warn('Fyers DataSocket Closed ❌');
+                // Ensure reconnect happens if fyers internal autoreconnect fails
+                setTimeout(() => {
+                    if (!this.isConnected) {
+                        this.logger.log('Attempting manual reconnect after close...');
+                        this.socket?.connect();
+                    }
+                }, 15000);
             });
 
             this.socket.connect();
             this.socket.autoreconnect();
+
+            // Critical fix for `ws` library throwing "Unexpected server response: 502" asynchronously
+            if (this.socket.ws && typeof this.socket.ws.on === 'function') {
+                this.socket.ws.on('error', (err: any) => {
+                    this.logger.warn(`Underlying WS Error: ${err.message}`);
+                });
+            }
         } catch (error) {
             this.logger.error('Failed to initialize Fyers DataSocket:', error.message);
         }

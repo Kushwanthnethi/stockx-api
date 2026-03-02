@@ -20,6 +20,18 @@ export class YahooFinanceService {
             if (typeof YahooFinanceClass === 'function') {
                 const config = {
                     validation: { logErrors: false },
+                    suppressNotices: ['yahooSurvey'],
+                    logger: {
+                        info: (...args: any[]) => { },
+                        warn: (...args: any[]) => {
+                            if (args[0] && typeof args[0] === 'string' && args[0].includes('Could not determine entry type')) {
+                                return;
+                            }
+                            console.warn(...args);
+                        },
+                        error: (...args: any[]) => { },
+                        debug: (...args: any[]) => { }
+                    }
                 };
                 // @ts-ignore
                 this.yahooFinance = new YahooFinanceClass(config);
