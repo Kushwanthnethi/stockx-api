@@ -125,24 +125,21 @@ export class FyersSocketService implements OnModuleInit {
                 this.stocksGateway.sendPriceUpdate(yahooSymbol, {
                     price: price,
                     change: message.ch || message.cng || 0,
-                    changePercent: message.chp || message.nc || 0,
+                    changePercent: message.chPercent || message.chp || message.nc || 0,
                     symbol: yahooSymbol,
                 });
 
-                // Update Database for Indices to ensure freshness on refresh
-                const isIndexFyers = fyersSymbol.includes('INDEX') || yahooSymbol.startsWith('NIFTY') || yahooSymbol === 'SENSEX' || yahooSymbol.startsWith('^');
-                if (isIndexFyers) {
-                    this.prisma.stock.update({
-                        where: { symbol: yahooSymbol },
-                        data: {
-                            currentPrice: price,
-                            changePercent: message.chp || message.nc || 0,
-                            lastUpdated: new Date(),
-                        }
-                    }).catch(() => {
-                        // Silent catch - sectoral indices might not be in DB yet
-                    });
-                }
+                // Update Database for all stocks to ensure freshness on refresh/load
+                this.prisma.stock.update({
+                    where: { symbol: yahooSymbol },
+                    data: {
+                        currentPrice: price,
+                        changePercent: message.chPercent || message.chp || message.nc || 0,
+                        lastUpdated: new Date(),
+                    }
+                }).catch(() => {
+                    // Silent catch - sectoral indices or new symbols might not be in DB yet
+                });
             }
         }
     }

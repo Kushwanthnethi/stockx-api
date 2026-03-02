@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { YahooFinanceService } from './yahoo-finance.service';
 import { FyersService } from './fyers.service';
 import { SymbolMapper } from './utils/symbol-mapper.util';
+import { isMarketOpen } from './utils/market-time.util';
 import {
   calculateTechnicalSignals,
   generateSyntheticRationale,
@@ -339,9 +340,10 @@ export class StocksService {
       }
     }
 
-    // Check if data is stale (Indices: 1 min, Stocks: 15 mins)
+    // Check if data is stale (Indices: 1 min, Stocks: 15 mins, Live Market: 30 secs)
     const isSpecialIndex = symbol === 'NIFTY 50' || symbol === 'SENSEX' || symbol.startsWith('^');
-    const staleThreshold = isSpecialIndex ? 1 * 60 * 1000 : 15 * 60 * 1000;
+    const marketOpen = isMarketOpen();
+    const staleThreshold = isSpecialIndex ? 1 * 60 * 1000 : (marketOpen ? 30 * 1000 : 15 * 60 * 1000);
     const staleTime = new Date(Date.now() - staleThreshold);
 
     if (
@@ -385,10 +387,40 @@ export class StocksService {
           }
         }
 
+        // 0. Use Fyers for real-time stock price if market is open and it's a regular stock
+        const isIndexName = ['NIFTY 50', 'SENSEX', 'NIFTY BANK'].includes(symbol.toUpperCase());
+        if (marketOpen && !symbol.startsWith('^') && !isIndexName) {
+          const fyersSymbol = SymbolMapper.toFyers(symbol);
+          const fyersQuotes = await this.fyersService.getQuotes([fyersSymbol]);
+
+          if (fyersQuotes && fyersQuotes.length > 0) {
+            const q = fyersQuotes[0];
+            const price = q.lp || q.v?.lp;
+
+            if (price) {
+              const dataToUpdate = {
+                currentPrice: price,
+                changePercent: q.chp || q.v?.chp || 0,
+                high52Week: q.h52 || q.v?.h52 || null,
+                low52Week: q.l52 || q.v?.l52 || null,
+                lastUpdated: new Date(),
+              };
+
+              const updatedStock = await this.prisma.stock.update({
+                where: { symbol },
+                data: dataToUpdate,
+                include: { investorStocks: { include: { investor: true } }, financials: true },
+              });
+
+              const cValue = (price * (dataToUpdate.changePercent / 100)) / (1 + (dataToUpdate.changePercent / 100));
+              return { ...updatedStock, change: cValue };
+            }
+          }
+        }
 
         // Normalize symbol for Yahoo and DB consistency
         let querySymbol = symbol;
-        const isIndexName = ['NIFTY 50', 'SENSEX', 'NIFTY BANK'].includes(symbol.toUpperCase());
+        // isIndexName already declared above
         if (!symbol.includes('.') && !symbol.startsWith('^') && !isIndexName) {
           querySymbol = `${symbol}.NS`;
         }
