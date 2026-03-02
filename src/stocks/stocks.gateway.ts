@@ -45,7 +45,7 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
         // Normalize symbol (RELIANCE -> RELIANCE.NS, but keep NIFTY 50 as is)
         let normalizedSymbol = symbol.toUpperCase();
-        const isIndex = ['NIFTY 50', 'SENSEX', 'NIFTY BANK'].includes(normalizedSymbol) || normalizedSymbol.startsWith('^');
+        const isIndex = normalizedSymbol.startsWith('NIFTY') || normalizedSymbol === 'SENSEX' || normalizedSymbol.startsWith('^');
 
         if (!normalizedSymbol.includes('.') && !isIndex) {
             normalizedSymbol = `${normalizedSymbol}.NS`;
@@ -67,7 +67,7 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
         if (!symbol) return;
 
         let normalizedSymbol = symbol.toUpperCase();
-        const isIndex = ['NIFTY 50', 'SENSEX', 'NIFTY BANK'].includes(normalizedSymbol) || normalizedSymbol.startsWith('^');
+        const isIndex = normalizedSymbol.startsWith('NIFTY') || normalizedSymbol === 'SENSEX' || normalizedSymbol.startsWith('^');
 
         if (!normalizedSymbol.includes('.') && !isIndex) {
             normalizedSymbol = `${normalizedSymbol}.NS`;

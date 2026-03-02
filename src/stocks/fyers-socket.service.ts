@@ -103,15 +103,10 @@ export class FyersSocketService implements OnModuleInit {
     }
 
     private handleMessage(message: any) {
-        // ALWAYS LOG FULL JSON FOR DEBUG
-        // this.logger.log(`[WebSocket] Message Received: ${JSON.stringify(message)}`);
-        // Special: If the message is nested in 'data' array (seen in logs)
-        if (Array.isArray(message.data)) {
-            message.data.forEach((item: any) => this.handleMessage(item));
-            return;
+        // ALWAYS LOG FULL JSON FOR DEBUG ON INDICES
+        if (message.n?.includes('INDEX') || message.s?.includes('INDEX')) {
+            this.logger.debug(`[WebSocket] Index Update Received: ${message.n || message.s} | Price: ${message.lp || message.ltp || message.iv}`);
         }
-
-        // this.logger.log(`[WebSocket] Handling Item: ${JSON.stringify(message)}`);
 
         // Fyers uses diverse symbols: n, symbol, s, tk (token), ts
         const fyersSymbol = message.n || message.symbol || message.s || message.tk || message.ts;
@@ -135,7 +130,7 @@ export class FyersSocketService implements OnModuleInit {
                 });
 
                 // Update Database for Indices to ensure freshness on refresh
-                const isIndexFyers = fyersSymbol.includes('INDEX') || ['NIFTY 50', 'SENSEX', 'NIFTY BANK', 'Nifty 50', 'Sensex', 'Nifty Bank'].includes(fyersSymbol);
+                const isIndexFyers = fyersSymbol.includes('INDEX') || yahooSymbol.startsWith('NIFTY') || yahooSymbol === 'SENSEX' || yahooSymbol.startsWith('^');
                 if (isIndexFyers) {
                     this.prisma.stock.update({
                         where: { symbol: yahooSymbol },
@@ -144,7 +139,9 @@ export class FyersSocketService implements OnModuleInit {
                             changePercent: message.chp || message.nc || 0,
                             lastUpdated: new Date(),
                         }
-                    }).catch(err => this.logger.error(`Failed to update DB for index ${yahooSymbol}: ${err.message}`));
+                    }).catch(() => {
+                        // Silent catch - sectoral indices might not be in DB yet
+                    });
                 }
             }
         }
@@ -158,9 +155,8 @@ export class FyersSocketService implements OnModuleInit {
         const symbolsToAdd = neededSymbols.filter((s) => !this.currentSubscribedSymbols.has(s));
 
         if (symbolsToAdd.length > 0) {
-            const indexNames = ['NIFTY 50', 'SENSEX', 'NIFTY BANK'];
-            const indexSymbols = symbolsToAdd.filter(s => indexNames.includes(s));
-            const stockSymbols = symbolsToAdd.filter(s => !indexNames.includes(s));
+            const indexSymbols = symbolsToAdd.filter(s => s.startsWith('NIFTY') || s === 'SENSEX');
+            const stockSymbols = symbolsToAdd.filter(s => !(s.startsWith('NIFTY') || s === 'SENSEX'));
 
             if (indexSymbols.length > 0) {
                 const fyersIndices = indexSymbols.map(s => SymbolMapper.toFyers(s));
@@ -179,9 +175,8 @@ export class FyersSocketService implements OnModuleInit {
 
         if (force && this.currentSubscribedSymbols.size > 0) {
             const symbols = Array.from(this.currentSubscribedSymbols);
-            const indexNames = ['NIFTY 50', 'SENSEX', 'NIFTY BANK'];
-            const indexSymbols = symbols.filter(s => indexNames.includes(s));
-            const stockSymbols = symbols.filter(s => !indexNames.includes(s));
+            const indexSymbols = symbols.filter(s => s.startsWith('NIFTY') || s === 'SENSEX');
+            const stockSymbols = symbols.filter(s => !(s.startsWith('NIFTY') || s === 'SENSEX'));
 
             if (indexSymbols.length > 0) {
                 const fyersIndices = indexSymbols.map(s => SymbolMapper.toFyers(s));
