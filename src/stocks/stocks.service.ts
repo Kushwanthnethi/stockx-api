@@ -17,16 +17,12 @@ export class StocksService {
   private readonly logger = new Logger(StocksService.name);
   constructor(
     private prisma: PrismaService,
-    private yahooFinanceService: YahooFinanceService,
+    public readonly yahooFinanceService: YahooFinanceService,
     private fyersService: FyersService,
   ) { }
 
-  private async getYahooClient() {
-    return this.yahooFinanceService.getClient();
-  }
 
   async getQuarterlyDetails(symbol: string) {
-    const yf = await this.getYahooClient();
     let querySymbol = symbol;
     if (!symbol.includes('.') && !symbol.startsWith('^')) {
       querySymbol = `${symbol}.NS`;
@@ -34,11 +30,11 @@ export class StocksService {
 
     let data: any[] = [];
     try {
-      const res = await yf.fundamentalsTimeSeries(querySymbol, {
+      const res = await this.yahooFinanceService.resilientCall<any>('fundamentalsTimeSeries', 'fundamentalsTimeSeries', querySymbol, {
         period1: '2023-01-01',
         module: 'financials',
         type: 'quarterly'
-      }, { validateResult: false });
+      });
 
       // Robust check for response format
       if (Array.isArray(res)) {
@@ -58,9 +54,9 @@ export class StocksService {
 
       try {
         // Fallback 1: earnings and price (incomeStatementHistoryQuarterly is deprecated)
-        const summary = await yf.quoteSummary(querySymbol, {
+        const summary = await this.yahooFinanceService.resilientCall<any>('quoteSummary', 'quoteSummary', querySymbol, {
           modules: ['earnings', 'price']
-        }, { validateResult: false }).catch(() => null);
+        }).catch(() => null);
 
         if (summary) {
           const history: any[] = []; // Deprecated module removed, fallback to earnings
@@ -188,8 +184,7 @@ export class StocksService {
   }
 
   async getQuote(symbol: string) {
-    const yahooFinance = await this.getYahooClient();
-    let result = await yahooFinance.quote(symbol);
+    let result = await this.yahooFinanceService.resilientCall<any>('quote', 'quote', symbol);
     if (Array.isArray(result)) result = result[0];
     return result;
   }
@@ -244,12 +239,11 @@ export class StocksService {
 
       // 2. Fallback to Yahoo if Fyers fails/is empty
       this.logger.warn('Fyers batch quotes empty, falling back to Yahoo Finance...');
-      const yahooFinance = await this.getYahooClient();
       const results = [];
 
       for (const symbol of symbols) {
         try {
-          let q = await yahooFinance.quote(symbol);
+          let q = await this.yahooFinanceService.resilientCall<any>('quote', 'quote', symbol);
           if (Array.isArray(q)) q = q[0];
           if (q) {
             results.push({
@@ -391,7 +385,6 @@ export class StocksService {
           }
         }
 
-        const yahooFinance = await this.getYahooClient();
 
         // Normalize symbol for Yahoo and DB consistency
         let querySymbol = symbol;
@@ -437,18 +430,14 @@ export class StocksService {
 
         // Fetch from Yahoo
         try {
-          result = await yahooFinance.quoteSummary(querySymbol, { modules });
-        } catch (e: any) {
-          // Fallback to original symbol if querySymbol failed
-          if (querySymbol !== symbol) {
-            try {
-              result = await yahooFinance.quoteSummary(symbol, { modules });
-              querySymbol = symbol;
-            } catch (e2) {
-              throw e; // Rethrow original error if even basic symbol fails
-            }
-          } else {
-            throw e;
+          result = await this.yahooFinanceService.resilientCall<any>('quoteSummary', 'quoteSummary', querySymbol, { modules });
+        } catch (e1) {
+          this.logger.warn(`Failed with querySymbol, trying original symbol...`);
+          try {
+            result = await this.yahooFinanceService.resilientCall<any>('quoteSummary', 'quoteSummary', symbol, { modules });
+            querySymbol = symbol; // Update querySymbol if original symbol worked
+          } catch (e2) {
+            throw e1; // Rethrow original error if even basic symbol fails
           }
         }
 
@@ -664,7 +653,6 @@ export class StocksService {
 
   async updateEarnings(symbol: string) {
     try {
-      const yahooFinance = await this.getYahooClient();
 
       // Handle suffix logic
       let querySymbol = symbol;
@@ -672,7 +660,7 @@ export class StocksService {
         querySymbol = `${symbol}.NS`;
       }
 
-      const res = await yahooFinance.quoteSummary(querySymbol, {
+      const res = await this.yahooFinanceService.resilientCall<any>('quoteSummary', 'quoteSummary', querySymbol, {
         modules: ['calendarEvents', 'earnings'],
       });
 
@@ -886,7 +874,6 @@ export class StocksService {
     try {
       console.log('Fetching earnings calendar for broader market...');
       console.log('Fetching earnings calendar for broader market...');
-      const yahooFinance = await this.getYahooClient();
 
       // Process in chunks to avoid rate limits or timeouts
       const chunkSize = 10;
@@ -898,7 +885,7 @@ export class StocksService {
           try {
             let res;
             try {
-              res = await yahooFinance.quoteSummary(symbol, {
+              res = await this.yahooFinanceService.resilientCall<any>('quoteSummary', 'quoteSummary', symbol, {
                 modules: [
                   'calendarEvents',
                   'price',
@@ -987,7 +974,6 @@ export class StocksService {
 
   async getEarningsDetails(symbol: string) {
     try {
-      const yahooFinance = await this.getYahooClient();
 
       // Fix: If symbol has no suffix (e.g. "DRREDDY"), assume NSE (.NS)
       // This matches frontend routing which strips .NS
@@ -996,7 +982,7 @@ export class StocksService {
         querySymbol = `${symbol}.NS`;
       }
 
-      const res = await yahooFinance.quoteSummary(querySymbol, {
+      const res = await this.yahooFinanceService.resilientCall<any>('quoteSummary', 'quoteSummary', querySymbol, {
         modules: [
           'earnings',
           'financialData',
@@ -1011,7 +997,7 @@ export class StocksService {
       // Fetch related news
       let newsItems = [];
       try {
-        const newsRes = await yahooFinance.search(symbol, { newsCount: 3 });
+        const newsRes = await this.yahooFinanceService.resilientCall<any>('search', 'search', querySymbol, { newsCount: 3 });
         if (newsRes.news) {
           newsItems = newsRes.news.map((n: any) => ({
             title: n.title,
@@ -1233,7 +1219,6 @@ export class StocksService {
    */
   private async refreshStocksMetadata(symbols: string[]) {
     try {
-      const yahooFinance = await this.getYahooClient();
       console.log(`[Background] Refreshing ${symbols.length} stocks...`);
 
       const results = [];
@@ -1251,8 +1236,10 @@ export class StocksService {
           if (symbol === 'NIFTY 50') querySymbol = '^NSEI';
           if (symbol === 'SENSEX') querySymbol = '^BSESN';
 
-          return yahooFinance
-            .quoteSummary(
+          return this.yahooFinanceService
+            .resilientCall<any>(
+              'quoteSummary',
+              'quoteSummary',
               querySymbol.includes('.') || querySymbol.startsWith('^')
                 ? querySymbol
                 : `${querySymbol}.NS`,
@@ -1331,7 +1318,6 @@ export class StocksService {
   }
   async getMarketNews() {
     try {
-      const yahooFinance = await this.getYahooClient();
 
       const queries = [
         'India Stock Market',
@@ -1340,7 +1326,7 @@ export class StocksService {
         'Indian Economy',
       ];
       const requests = queries.map((q) =>
-        yahooFinance.search(q, { newsCount: 10 }),
+        this.yahooFinanceService.resilientCall<any>('search', 'search', q, { newsCount: 10 }),
       );
 
       const results = await Promise.all(requests);
@@ -1426,8 +1412,7 @@ export class StocksService {
 
       // Fallback to Yahoo Finance Search
       console.log(`Fallback to Yahoo Search for ${symbol}...`);
-      const yahooFinance = await this.getYahooClient();
-      const result = await yahooFinance.search(companyName, { newsCount: 10 });
+      const result = await this.yahooFinanceService.resilientCall<any>('search', 'search', companyName, { newsCount: 10 });
       return result.news || [];
     } catch (error) {
       console.error(`Failed to fetch news for ${symbol}:`, error);
@@ -1462,11 +1447,10 @@ export class StocksService {
       // 2. Fallback/Augment with Yahoo Finance Search
       // Only if query length > 1 to avoid spamming "A", "B", "C"
       if (query.length >= 2) {
-        const yahooFinance = await this.getYahooClient();
         console.log(`Searching Yahoo for: ${query}`);
 
         try {
-          const remoteRes = await yahooFinance.search(query, {
+          const remoteRes = await this.yahooFinanceService.resilientCall<any>('search', 'search', query, {
             newsCount: 0,
             quotesCount: 10,
           });
@@ -1572,7 +1556,6 @@ export class StocksService {
 
   async getHistory(symbol: string, range: '1d' | '1w' | '1mo' | '3mo' | '1y' = '1mo') {
     try {
-      const yahooFinance = await this.getYahooClient();
 
       let querySymbol = symbol;
       if (symbol === 'NIFTY 50') querySymbol = '^NSEI';
@@ -1686,7 +1669,7 @@ export class StocksService {
       const timeout = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Timeout')), 10000),
       );
-      const fetchPromise = yahooFinance.chart(lookupSymbol, queryOptions);
+      const fetchPromise = this.yahooFinanceService.resilientCall<any>('chart', 'chart', lookupSymbol, queryOptions);
 
       const result = await Promise.race([fetchPromise, timeout]);
 
@@ -1701,7 +1684,7 @@ export class StocksService {
           interval: '1d',
           period1: Math.floor(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).getTime() / 1000),
         };
-        const fallback1wResult = await yahooFinance.chart(lookupSymbol, fallback1wOptions);
+        const fallback1wResult = await this.yahooFinanceService.resilientCall<any>('chart', 'chart', lookupSymbol, fallback1wOptions);
         if (fallback1wResult?.quotes?.length > 0) {
           finalResult = fallback1wResult.quotes.slice(-7);
           console.log(`[History] 1W daily fallback returned ${finalResult.length} points`);
@@ -1718,10 +1701,7 @@ export class StocksService {
             new Date().setDate(new Date().getDate() - 30) / 1000,
           ),
         };
-        const fallbackResult = await yahooFinance.chart(
-          lookupSymbol,
-          fallbackOptions,
-        );
+        const fallbackResult = await this.yahooFinanceService.resilientCall<any>('chart', 'chart', lookupSymbol, fallbackOptions);
         if (
           fallbackResult &&
           fallbackResult.quotes &&
@@ -1827,7 +1807,6 @@ export class StocksService {
 
   async getTechnicalAnalysis(symbol: string) {
     try {
-      const yahooFinance = await this.getYahooClient();
       const lookupSymbol =
         symbol.includes('.') || symbol.startsWith('^')
           ? symbol
@@ -1838,7 +1817,7 @@ export class StocksService {
         interval: '1d' as any,
       };
 
-      const result = await yahooFinance.chart(lookupSymbol, queryOptions);
+      const result = await this.yahooFinanceService.resilientCall<any>('chart', 'chart', lookupSymbol, queryOptions);
       const quotes = result.quotes || [];
       const closePrices = quotes
         .map((q: any) => q.close)
@@ -1856,7 +1835,6 @@ export class StocksService {
   }
 
   private async getYahooFundamentals(symbol: string) {
-    const yf = await this.getYahooClient();
     let querySymbol = symbol;
     if (!symbol.includes('.') && !symbol.startsWith('^')) {
       querySymbol = `${symbol}.NS`;
@@ -1864,11 +1842,16 @@ export class StocksService {
 
     try {
       // yahoo-finance2 v3 API: type is 'annual'|'quarterly'|'trailing', module is 'financials'|'balance-sheet'|'cash-flow'|'all'
-      const res = await yf.fundamentalsTimeSeries(querySymbol, {
-        period1: '2021-01-01',
-        type: 'annual',
-        module: 'all',
-      });
+      const res = await this.yahooFinanceService.resilientCall<any>(
+        'fundamentalsTimeSeries',
+        'fundamentalsTimeSeries',
+        querySymbol,
+        {
+          period1: '2021-01-01',
+          type: 'annual',
+          module: 'all',
+        },
+      );
 
       // V3 returns an array of objects, each representing a period with key-value pairs
       // e.g. { date: 1234567890, TYPE: 'FINANCIALS', periodType: '12M', totalRevenue: 123456, netIncome: 78900, ... }

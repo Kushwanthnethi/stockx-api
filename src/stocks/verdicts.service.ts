@@ -20,7 +20,7 @@ export class VerdictsService implements OnModuleInit {
   private readonly PRECOMPUTE_INTERVAL = 30 * 60 * 1000; // 30 minutes
   private readonly BATCH_SIZE = 5;
   private readonly BATCH_DELAY = 4000; // 4s between each stock in a batch
-  private readonly BATCH_GAP = 10000; // 10s between batches
+  private readonly BATCH_GAP = 30000; // 30s between batches (increased to avoid crumb 429s)
 
   private readonly NIFTY_50_SYMBOLS = [
     'RELIANCE.NS',
@@ -116,6 +116,14 @@ export class VerdictsService implements OnModuleInit {
       return;
     }
     this.isPreComputing = true;
+
+    // Check if Yahoo Finance is currently rate-limited
+    if (this.stocksService.yahooFinanceService.isLimited) {
+      this.logger.warn('[Pre-Compute] Yahoo Finance is currently circuit-broken. Delaying pre-computation.');
+      this.isPreComputing = false;
+      return;
+    }
+
     this.logger.log('[Pre-Compute] Starting institutional data pre-computation...');
     const startTime = Date.now();
 
