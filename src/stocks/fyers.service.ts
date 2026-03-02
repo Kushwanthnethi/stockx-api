@@ -154,7 +154,7 @@ export class FyersService implements OnModuleInit {
 
             if (tokenDayIST === nowDayIST) {
                 this.accessToken = data.access_token;
-                this.logger.log('Loaded active Fyers token from database.');
+                this.logger.log('✅ Loaded active Fyers token from database.');
             } else {
                 if (!this.tokenLoadedOnce) {
                     this.logger.warn('Saved Fyers token is expired (from a previous day). Please re-authenticate.');

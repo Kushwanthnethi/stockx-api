@@ -30,7 +30,8 @@ export class YahooFinanceService {
                             console.warn(...args);
                         },
                         error: (...args: any[]) => { },
-                        debug: (...args: any[]) => { }
+                        debug: (...args: any[]) => { },
+                        dir: (...args: any[]) => { }
                     }
                 };
                 // @ts-ignore

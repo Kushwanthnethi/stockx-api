@@ -1598,11 +1598,9 @@ export class StocksService {
           const today1d = new Date().toISOString().split('T')[0];
           // Look back 4 days to ensure we catch Friday data if it's Monday morning / Sunday
           const past1d = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
           const fyersHistory1d = await this.fyersService.getHistory(fyersSymbol1d, '1', past1d, today1d);
 
           if (fyersHistory1d && fyersHistory1d.length > 0) {
-            console.log(`[History] Using Fyers (1m) for ${symbol} 1d view. Points: ${fyersHistory1d.length}`);
 
             const uniqueMap = new Map();
             // Since we queried 4 days, we only want the LAST trading day's data for the '1d' view
@@ -1693,10 +1691,26 @@ export class StocksService {
       const result = await Promise.race([fetchPromise, timeout]);
 
       let finalResult = result.quotes || [];
+      console.log(`[History] Yahoo returned ${finalResult.length} points for ${lookupSymbol} ${range}`);
+
+      // Fail-safe: If 1w hourly returned nothing, fetch daily as fallback
+      if (range === '1w' && finalResult.length === 0) {
+        console.log('[History] 1W hourly empty, fetching daily fallback');
+        const fallback1wOptions = {
+          ...queryOptions,
+          interval: '1d',
+          period1: Math.floor(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).getTime() / 1000),
+        };
+        const fallback1wResult = await yahooFinance.chart(lookupSymbol, fallback1wOptions);
+        if (fallback1wResult?.quotes?.length > 0) {
+          finalResult = fallback1wResult.quotes.slice(-7);
+          console.log(`[History] 1W daily fallback returned ${finalResult.length} points`);
+        }
+      }
 
       // Fail-safe: If 1d intraday returned nothing (common on weekends/holidays for free API), fetch daily
-      if (range === '1d' && (!result || result.length === 0)) {
-        console.log('Intraday empty, fetching daily fallback for 1d view');
+      if (range === '1d' && finalResult.length === 0) {
+        console.log('[History] Intraday empty, fetching daily fallback for 1d view');
         const fallbackOptions = {
           ...queryOptions,
           interval: '1d',
@@ -1714,20 +1728,23 @@ export class StocksService {
           fallbackResult.quotes.length > 0
         ) {
           finalResult = fallbackResult.quotes.slice(-5); // Show last 5 daily candles
+          console.log(`[History] Daily fallback returned ${finalResult.length} points`);
         }
       }
 
       // Filter for 1d: Keep only the LAST trading session's data
-      if (range === '1d' && result && result.length > 0) {
-        const lastDate = new Date(result[result.length - 1].date);
+      if (range === '1d' && finalResult.length > 0) {
+        const lastDate = new Date(finalResult[finalResult.length - 1].date);
         const lastDateStr = lastDate.toDateString();
-        finalResult = result.filter(
+        const filtered = finalResult.filter(
           (q: any) => new Date(q.date).toDateString() === lastDateStr,
         );
 
-        if (finalResult.length === 0) {
-          // Fallback to last ~25 points if date matching failed
-          finalResult = result.slice(-25);
+        if (filtered.length > 1) {
+          finalResult = filtered;
+        } else {
+          // Fallback to last ~25 points if date matching yielded too few
+          finalResult = finalResult.slice(-25);
         }
       }
 
@@ -1741,7 +1758,7 @@ export class StocksService {
         volume: quote.volume,
       }));
     } catch (error) {
-      console.error(`Failed to fetch history for ${symbol}:`, error);
+      this.logger.error(`Failed to fetch history for ${symbol}: ${error.message}`, error.stack);
       return [];
     }
   }
