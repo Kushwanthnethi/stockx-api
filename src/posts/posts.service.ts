@@ -108,7 +108,12 @@ export class PostsService {
         if (p.originalPost) userIds.add(p.originalPost.userId);
       });
 
-      const [likedPosts, bookmarkedPosts, following] = await Promise.all([
+      // Get the original post IDs for reshare check
+      const originalPostIds = posts
+        .filter(p => !p.originalPostId)
+        .map(p => p.id);
+
+      const [likedPosts, bookmarkedPosts, following, myReshares] = await Promise.all([
         this.prisma.interaction.findMany({
           where: {
             userId: userId,
@@ -131,17 +136,29 @@ export class PostsService {
             followeeId: { in: Array.from(userIds) }
           },
           select: { followeeId: true },
-        })
+        }),
+        originalPostIds.length > 0
+          ? this.prisma.post.findMany({
+            where: {
+              userId: userId,
+              originalPostId: { in: originalPostIds },
+              isDeleted: false,
+            },
+            select: { originalPostId: true },
+          })
+          : Promise.resolve([]),
       ]);
 
       const likedPostIds = new Set(likedPosts.map((lp) => lp.postId));
       const bookmarkedPostIds = new Set(bookmarkedPosts.map((bp) => bp.postId));
       const followingIds = new Set(following.map((f) => f.followeeId));
+      const resharedPostIds = new Set(myReshares.map((r: any) => r.originalPostId));
 
       return posts.map((post) => ({
         ...post,
         likedByMe: likedPostIds.has(post.id),
         bookmarkedByMe: bookmarkedPostIds.has(post.id),
+        resharedByMe: resharedPostIds.has(post.id),
         isFollowingAuthor: followingIds.has(post.userId),
         originalPost: post.originalPost
           ? {
@@ -247,37 +264,41 @@ export class PostsService {
     });
   }
 
-  async resharePost(userId: string, originalPostId: string) {
+  async resharePost(userId: string, originalPostId: string, content?: string) {
     // Fetch original post
     const originalPost = await this.prisma.post.findUnique({
       where: { id: originalPostId },
     });
     if (!originalPost) throw new Error('Post not found');
 
-    // Check if user already reshared this post
+    // Check if user already reshared this post (simple reshare, not quote)
     const existingReshare = await this.prisma.post.findFirst({
       where: {
         userId: userId,
         originalPostId: originalPostId,
-      },
-      include: {
-        user: true,
-        originalPost: {
-          include: {
-            user: true,
-          },
-        },
+        isDeleted: false,
       },
     });
 
-    if (existingReshare) {
-      return existingReshare;
+    // Toggle: If already reshared and no content (not a quote repost), undo it
+    if (existingReshare && !content) {
+      await this.prisma.post.delete({
+        where: { id: existingReshare.id },
+      });
+
+      // Decrement reshare count on original
+      await this.prisma.post.update({
+        where: { id: originalPostId },
+        data: { reshareCount: { decrement: 1 } },
+      });
+
+      return { undone: true, postId: originalPostId };
     }
 
-    // Create a new post as a reshare
+    // Create a new post as a reshare (simple or quote)
     const reshare = await this.prisma.post.create({
       data: {
-        content: '', // Content can be empty for a simple reshare
+        content: content || '',
         userId: userId,
         originalPostId: originalPostId,
       },

@@ -144,8 +144,8 @@ export class PostsController {
 
   @Post(':id/reshare')
   @UseGuards(AuthGuard('jwt'))
-  resharePost(@Req() req: any, @Param('id') id: string) {
-    return this.postsService.resharePost(req.user.id, id);
+  resharePost(@Req() req: any, @Param('id') id: string, @Body('content') content?: string) {
+    return this.postsService.resharePost(req.user.id, id, content);
   }
 
   @Delete(':id')
