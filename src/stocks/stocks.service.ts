@@ -46,12 +46,12 @@ export class StocksService {
         data = Array.isArray(wrapped) ? wrapped : [];
       }
     } catch (e) {
-      console.warn(`Primary fundamentals fetch failed for ${symbol}, proceeding to fallbacks. Error: ${e.message}`);
+      this.logger.debug(`Primary fundamentals fetch failed for ${symbol}, proceeding to fallbacks. Error: ${e.message}`);
     }
 
     // Fallback Logic (Executes if data is empty OR if primary fetch failed)
     if (data.length === 0) {
-      console.warn(`No time-series data for ${symbol}, trying quoteSummary fallbacks...`);
+      this.logger.debug(`No time-series data for ${symbol}, trying quoteSummary fallbacks...`);
 
       try {
         // Fallback 1: earnings and price (incomeStatementHistoryQuarterly is deprecated)
@@ -116,7 +116,7 @@ export class StocksService {
           // Fallback 2: earnings module (very basic but reliable)
           const earningsHistory = summary.earnings?.financialsChart?.quarterly || [];
           if (earningsHistory.length > 0) {
-            console.log(`Found ${earningsHistory.length} quarters in earnings module for ${symbol}`);
+            this.logger.debug(`Found ${earningsHistory.length} quarters in earnings module for ${symbol}`);
             return earningsHistory.map((q: any) => {
               const sales = q.revenue || 0;
               const netProfit = q.earnings || 0;
@@ -142,8 +142,8 @@ export class StocksService {
             });
           }
         }
-      } catch (fbError) {
-        console.error(`Fallback attempts also failed for ${symbol}`, fbError);
+      } catch (fbError: any) {
+        this.logger.debug(`Fallback attempts also failed for ${symbol}: ${fbError.message}`);
       }
       return [];
     }
@@ -1535,6 +1535,96 @@ export class StocksService {
       return [];
     }
   }
+
+  async getMarketMovers() {
+    try {
+      // 1. Query all stocks with a valid price and changePercent from DB
+      const allStocks = await this.prisma.stock.findMany({
+        where: {
+          isNifty50: true,
+          currentPrice: { not: null, gt: 0 },
+          changePercent: { not: null },
+        },
+        orderBy: { changePercent: 'desc' },
+        select: {
+          symbol: true,
+          companyName: true,
+          currentPrice: true,
+          changePercent: true,
+        },
+      });
+
+      // 2. Categorize
+      const gainers = allStocks
+        .filter(s => (s.changePercent || 0) > 0)
+        .slice(0, 5);
+
+      const losers = allStocks
+        .filter(s => (s.changePercent || 0) < 0)
+        .reverse() // worst first
+        .slice(0, 5);
+
+      const active = [...allStocks]
+        .sort((a, b) => Math.abs(b.changePercent || 0) - Math.abs(a.changePercent || 0))
+        .slice(0, 5);
+
+      // 3. Collect unique symbols that need sparkline data
+      const allMovers = [...gainers, ...losers, ...active];
+      const uniqueSymbols = [...new Set(allMovers.map(s => s.symbol))];
+
+      // 4. Fetch sparkline data (1-week daily close prices) in parallel
+      const sparklineMap = new Map<string, number[]>();
+      const sparklinePromises = uniqueSymbols.map(async (symbol) => {
+        try {
+          const lookupSymbol = symbol.endsWith('.NS') || symbol.endsWith('.BO') || symbol.startsWith('^')
+            ? symbol
+            : `${symbol.toUpperCase()}.NS`;
+
+          const now = new Date();
+          const fromDate = new Date();
+          fromDate.setDate(now.getDate() - 10); // 10 days back to ensure ~7 trading days
+
+          const result = await this.yahooFinanceService.resilientCall<any>('chart', 'chart', lookupSymbol, {
+            interval: '1d',
+            period1: Math.floor(fromDate.getTime() / 1000),
+            period2: Math.floor(now.getTime() / 1000),
+          });
+
+          const quotes = result?.quotes || [];
+          const closePrices = quotes
+            .map((q: any) => q.close)
+            .filter((p: any) => p != null && !isNaN(p));
+
+          // Take last 7 data points
+          sparklineMap.set(symbol, closePrices.slice(-7));
+        } catch {
+          sparklineMap.set(symbol, []);
+        }
+      });
+
+      await Promise.all(sparklinePromises);
+
+      // 5. Attach sparkline to each stock
+      const enrich = (stocks: typeof gainers) =>
+        stocks.map(s => ({
+          symbol: s.symbol,
+          companyName: s.companyName,
+          currentPrice: s.currentPrice,
+          changePercent: s.changePercent,
+          sparkline: sparklineMap.get(s.symbol) || [],
+        }));
+
+      return {
+        gainers: enrich(gainers),
+        losers: enrich(losers),
+        active: enrich(active),
+      };
+    } catch (error) {
+      this.logger.error('Failed to get market movers', error);
+      return { gainers: [], losers: [], active: [] };
+    }
+  }
+
   async getIndices() {
     try {
       // All major Indian indices — fetched in parallel via Promise.allSettled for fault tolerance

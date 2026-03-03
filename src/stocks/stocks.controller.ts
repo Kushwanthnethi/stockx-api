@@ -20,6 +20,11 @@ export class StocksController {
     return this.stocksService.getTrending();
   }
 
+  @Get('market-movers')
+  getMarketMovers() {
+    return this.stocksService.getMarketMovers();
+  }
+
   @Get('indices')
   getIndices() {
     return this.stocksService.getIndices();

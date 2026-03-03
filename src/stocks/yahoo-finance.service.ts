@@ -30,9 +30,9 @@ export class YahooFinanceService {
                     logger: {
                         info: (...args: any[]) => { },
                         warn: (...args: any[]) => {
-                            if (args[0] && typeof args[0] === 'string' && args[0].includes('Could not determine entry type')) {
-                                return;
-                            }
+                            const str = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+                            if (str.includes('Could not determine entry type')) return;
+                            if (str.includes('Failed Yahoo Schema')) return;
                             console.warn(...args);
                         },
                         error: (...args: any[]) => { },
@@ -104,7 +104,11 @@ export class YahooFinanceService {
                 }
 
                 // For non-rate-limit errors or if retries exhausted
-                this.logger.error(`Yahoo Finance call failed (${module}.${method}): ${error.message}`);
+                if (error.message?.includes('Failed Yahoo Schema validation')) {
+                    this.logger.debug(`Yahoo Finance schema validation failed (${module}.${method}): ${error.message}`);
+                } else {
+                    this.logger.error(`Yahoo Finance call failed (${module}.${method}): ${error.message}`);
+                }
                 throw error;
             }
         }
