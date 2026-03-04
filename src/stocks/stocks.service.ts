@@ -1625,9 +1625,17 @@ export class StocksService {
     }
   }
 
+  // In-memory cache for indices (avoids redundant API calls)
+  private indicesCache: { data: any[]; timestamp: number } | null = null;
+  private readonly INDICES_CACHE_TTL = 30_000; // 30 seconds
+
   async getIndices() {
     try {
-      // All major Indian indices — fetched in parallel via Promise.allSettled for fault tolerance
+      // Return cached data if fresh
+      if (this.indicesCache && Date.now() - this.indicesCache.timestamp < this.INDICES_CACHE_TTL) {
+        return this.indicesCache.data;
+      }
+
       const indexSymbols = [
         { query: 'NIFTY 50', label: 'NIFTY 50', fallbackPrice: 25700 },
         { query: 'SENSEX', label: 'SENSEX', fallbackPrice: 82800 },
@@ -1642,39 +1650,89 @@ export class StocksService {
         { query: '^NSEMDCP50', label: 'NIFTY MIDCAP 50', fallbackPrice: 15000 },
       ];
 
-      const settled = await Promise.allSettled(
-        indexSymbols.map(idx => this.findOne(idx.query))
-      );
+      // OPTIMIZATION: Single batched Fyers API call for ALL 11 indices (was 11 separate findOne calls)
+      const fyersSymbols = indexSymbols.map(idx => SymbolMapper.toFyers(idx.query));
+      const fyersQuotes = await this.fyersService.getQuotes(fyersSymbols);
 
       const results: any[] = [];
-      for (let i = 0; i < settled.length; i++) {
-        const cfg = indexSymbols[i];
-        if (settled[i].status === 'fulfilled' && (settled[i] as any).value) {
-          results.push({ ...(settled[i] as any).value, _label: cfg.label });
-        } else {
-          // Fallback for failed/missing indices
+
+      for (const cfg of indexSymbols) {
+        const fyersSym = SymbolMapper.toFyers(cfg.query);
+        const q = fyersQuotes?.find((fq: any) => fq.n === fyersSym || fq.v?.n === fyersSym);
+
+        if (q) {
+          const price = q.lp || q.v?.lp || q.iv;
+          const chp = q.chp || q.v?.chp || 0;
+
+          if (price) {
+            const change = (price * (chp / 100)) / (1 + (chp / 100));
+
+            results.push({
+              symbol: cfg.label,
+              price,
+              change,
+              changePercent: chp,
+            });
+
+            // Background DB upsert (lightweight, no JOINs, fire-and-forget)
+            this.prisma.stock.upsert({
+              where: { symbol: cfg.query },
+              update: {
+                currentPrice: price,
+                changePercent: chp,
+                highDay: q.h || q.v?.h || null,
+                lowDay: q.l || q.v?.l || null,
+                lastUpdated: new Date(),
+              },
+              create: {
+                symbol: cfg.query,
+                companyName: cfg.label,
+                exchange: cfg.query.startsWith('BSE') ? 'BSE' : 'NSE',
+                currentPrice: price,
+                changePercent: chp,
+                lastUpdated: new Date(),
+              },
+            }).catch(e => this.logger.error(`Failed to upsert index ${cfg.query}:`, e.message));
+
+            continue;
+          }
+        }
+
+        // Fallback: try lightweight DB read if Fyers missed this symbol
+        const dbStock = await this.prisma.stock.findUnique({
+          where: { symbol: cfg.query },
+          select: { currentPrice: true, changePercent: true },
+        }).catch(() => null);
+
+        if (dbStock && dbStock.currentPrice) {
+          const chp = dbStock.changePercent || 0;
+          const change = (dbStock.currentPrice * (chp / 100)) / (1 + (chp / 100));
           results.push({
             symbol: cfg.label,
-            currentPrice: cfg.fallbackPrice,
-            changePercent: 0,
+            price: dbStock.currentPrice,
+            change,
+            changePercent: chp,
+          });
+        } else {
+          // Final fallback: static defaults
+          results.push({
+            symbol: cfg.label,
+            price: cfg.fallbackPrice,
             change: 0,
-            _label: cfg.label,
+            changePercent: 0,
           });
         }
       }
 
-      // Transform to match frontend expectation
-      return results.map((index: any) => ({
-        symbol: index._label || index.symbol,
-        price: index.currentPrice || 0,
-        change: index.change || 0,
-        changePercent: index.changePercent || 0,
-      }));
+      // Cache the results
+      this.indicesCache = { data: results, timestamp: Date.now() };
+      return results;
     } catch (error) {
       console.error('Failed to get indices', error);
       return [];
     }
   }
+
 
   async getHistory(symbol: string, range: '1d' | '1w' | '1mo' | '3mo' | '1y' = '1mo') {
     try {
