@@ -1,14 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import * as bcrypt from 'bcrypt';
+import { OAuth2Client } from 'google-auth-library';
 
 @Injectable()
 export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
-  ) {}
+  ) { }
 
   async validateUser(email: string, pass?: string): Promise<any> {
     const user = await this.usersService.findByEmail(email);
@@ -63,5 +64,36 @@ export class AuthService {
     }
 
     return this.login(user);
+  }
+
+  async googleOneTapLogin(credential: string) {
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+    try {
+      const ticket = await client.verifyIdToken({
+        idToken: credential,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+
+      const payload = ticket.getPayload();
+      if (!payload || !payload.email) {
+        throw new UnauthorizedException('Invalid Google token');
+      }
+
+      let user = await this.usersService.findByEmail(payload.email);
+      if (!user) {
+        user = await this.usersService.create({
+          email: payload.email,
+          firstName: payload.given_name || '',
+          lastName: payload.family_name || '',
+          picture: payload.picture || '',
+        });
+      }
+
+      return this.login(user);
+    } catch (error) {
+      console.error('Google One Tap verification failed:', error);
+      throw new UnauthorizedException('Invalid Google credential');
+    }
   }
 }

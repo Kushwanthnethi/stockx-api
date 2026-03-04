@@ -39,6 +39,15 @@ export class AuthController {
       `${frontendUrl}/auth/callback?token=${data.access_token}`,
     );
   }
+
+  @Post('google/one-tap')
+  @Public()
+  async googleOneTap(@Body() body: { credential: string }) {
+    if (!body.credential) {
+      throw new BadRequestException('Google credential is required');
+    }
+    return this.authService.googleOneTapLogin(body.credential);
+  }
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
   getProfile(@Req() req: any) {
