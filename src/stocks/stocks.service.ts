@@ -1348,37 +1348,75 @@ export class StocksService {
       console.error('[Background] Stocks refresh failed:', error);
     }
   }
+  private async fetchNewsFromGoogleRSS(queries: string[], limit: number = 15) {
+    const allItems: any[] = [];
+    const titles = new Set<string>();
+
+    for (const q of queries) {
+      try {
+        const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-IN&gl=IN&ceid=IN:en`;
+        const feed = await this.parser.parseURL(url);
+
+        if (feed.items) {
+          for (const item of feed.items) {
+            const title = item.title?.split(' - ')[0] || item.title || '';
+            const normalizedTitle = title.toLowerCase().trim();
+
+            if (!titles.has(normalizedTitle)) {
+              titles.add(normalizedTitle);
+              allItems.push({
+                uuid: item.link || Math.random().toString(36).substring(7),
+                title: title,
+                link: item.link,
+                contentSnippet: item.contentSnippet || item.content || '',
+                publisher: item.title?.split(' - ').pop() || 'News',
+                providerPublishTime: item.pubDate ? new Date(item.pubDate) : new Date(),
+              });
+            }
+          }
+        }
+      } catch (e) {
+        this.logger.warn(`Failed to fetch Google News RSS for query "${q}": ${e.message}`);
+      }
+    }
+
+    // Sort by time (newest first)
+    return allItems
+      .sort((a: any, b: any) => b.providerPublishTime.getTime() - a.providerPublishTime.getTime())
+      .slice(0, limit);
+  }
+
   async getMarketNews() {
     try {
-
       const queries = [
         'India Stock Market',
-        'Nifty 50',
-        'Sensex',
-        'Indian Economy',
+        'Nifty 50 News',
+        'Sensex News',
+        'Indian Economy News',
       ];
+
+      const news = await this.fetchNewsFromGoogleRSS(queries, 20);
+
+      if (news.length > 0) return news;
+
+      // Fallback to Yahoo Finance Search only if Google returns nothing
+      this.logger.log('Fallback to Yahoo Search for Market News...');
       const requests = queries.map((q) =>
         this.yahooFinanceService.resilientCall<any>('search', 'search', q, { newsCount: 10 }),
       );
 
       const results = await Promise.all(requests);
-
-      // Combine and deduplicate
       const allNews = results.flatMap((r) => r.news || []);
-      const uniqueNews = Array.from(
+      return Array.from(
         new Map(allNews.map((item: any) => [item.uuid, item])).values(),
-      );
-
-      // Sort by time (newest first)
-      uniqueNews.sort(
+      ).sort(
         (a: any, b: any) =>
           new Date(b.providerPublishTime).getTime() -
           new Date(a.providerPublishTime).getTime(),
-      );
+      ).slice(0, 20);
 
-      return uniqueNews.slice(0, 20);
     } catch (error) {
-      console.error('Failed to fetch news:', error);
+      this.logger.error('Failed to fetch Market News:', error);
       return [];
     }
   }
@@ -1396,58 +1434,16 @@ export class StocksService {
         `${symbol} stock`,
       ];
 
-      console.log(`Fetching relevant news for ${companyName} (${symbol})...`);
+      const news = await this.fetchNewsFromGoogleRSS(queries, 15);
 
-      const allItems: any[] = [];
-      const titles = new Set<string>();
-
-      for (const q of queries) {
-        try {
-          const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-IN&gl=IN&ceid=IN:en`;
-          const feed = await this.parser.parseURL(url);
-
-          if (feed.items) {
-            for (const item of feed.items) {
-              const title = item.title?.split(' - ')[0] || item.title || '';
-              const normalizedTitle = title.toLowerCase().trim();
-
-              if (!titles.has(normalizedTitle)) {
-                titles.add(normalizedTitle);
-                allItems.push({
-                  uuid: item.link || Math.random().toString(36).substring(7),
-                  title: title,
-                  link: item.link,
-                  contentSnippet: item.contentSnippet || item.content || '',
-                  publisher: item.title?.split(' - ').pop() || 'News',
-                  providerPublishTime: item.pubDate ? new Date(item.pubDate) : new Date(),
-                });
-              }
-            }
-          }
-        } catch (e) {
-          console.warn(`Failed to fetch RSS for query "${q}":`, e.message);
-        }
-      }
-
-      // Sort by time
-      const news = allItems.sort(
-        (a: any, b: any) =>
-          b.providerPublishTime.getTime() - a.providerPublishTime.getTime(),
-      );
-
-      // limit to 15 items
-      const finalNews = news.slice(0, 15);
-
-      if (finalNews.length > 0) {
-        return finalNews;
-      }
+      if (news.length > 0) return news;
 
       // Fallback to Yahoo Finance Search
-      console.log(`Fallback to Yahoo Search for ${symbol}...`);
+      this.logger.log(`Fallback to Yahoo Search for ${symbol}...`);
       const result = await this.yahooFinanceService.resilientCall<any>('search', 'search', companyName, { newsCount: 10 });
       return result.news || [];
     } catch (error) {
-      console.error(`Failed to fetch news for ${symbol}:`, error);
+      this.logger.error(`Failed to fetch news for ${symbol}:`, error);
       return [];
     }
   }
