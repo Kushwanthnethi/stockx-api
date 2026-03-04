@@ -158,17 +158,18 @@ export class FyersService implements OnModuleInit {
             const data = JSON.parse(record.value);
             const tokenDate = new Date(data.date);
 
-            // Fyers tokens expire at midnight IST. We format the UTC date with IST timezone
-            // to safely check if it generated "today" in India, regardless of server location.
-            const formatter = new Intl.DateTimeFormat('en-IN', {
-                timeZone: 'Asia/Kolkata',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-            });
+            // Fyers tokens expire at midnight IST. 
+            // We use simple math to get the IST date string (UTC + 5 hours 30 minutes)
+            const istOffsetMs = 5.5 * 60 * 60 * 1000;
 
-            const tokenDayIST = formatter.format(tokenDate);
-            const nowDayIST = formatter.format(new Date());
+            // Get YYYY-MM-DD in IST
+            const getISTDateString = (dateObj: Date) => {
+                const istDate = new Date(dateObj.getTime() + istOffsetMs);
+                return istDate.toISOString().split('T')[0];
+            };
+
+            const tokenDayIST = getISTDateString(tokenDate);
+            const nowDayIST = getISTDateString(new Date());
 
             if (tokenDayIST === nowDayIST) {
                 this.accessToken = data.access_token;
