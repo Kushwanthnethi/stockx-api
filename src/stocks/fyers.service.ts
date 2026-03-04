@@ -128,6 +128,19 @@ export class FyersService implements OnModuleInit {
         }
     }
 
+    async clearToken() {
+        this.accessToken = null;
+        this.tokenLoadedOnce = false; // allow it to warn again if needed
+        try {
+            await this.prisma.appConfig.delete({
+                where: { key: FYERS_TOKEN_KEY },
+            });
+            this.logger.log('Fyers token cleared from database due to invalidity/expiration.');
+        } catch (error) {
+            // Ignore if it's already deleted
+        }
+    }
+
     private async loadTokenFromDb() {
         try {
             const record = await this.prisma.appConfig.findUnique({
@@ -144,13 +157,18 @@ export class FyersService implements OnModuleInit {
 
             const data = JSON.parse(record.value);
             const tokenDate = new Date(data.date);
-            const now = new Date();
 
-            // Use UTC dates for comparison (Fyers tokens are valid for one calendar day IST)
-            // Convert both to IST (UTC+5:30) for accurate "same day" check
-            const istOffset = 5.5 * 60 * 60 * 1000;
-            const tokenDayIST = new Date(tokenDate.getTime() + istOffset).toDateString();
-            const nowDayIST = new Date(now.getTime() + istOffset).toDateString();
+            // Fyers tokens expire at midnight IST. We format the UTC date with IST timezone
+            // to safely check if it generated "today" in India, regardless of server location.
+            const formatter = new Intl.DateTimeFormat('en-IN', {
+                timeZone: 'Asia/Kolkata',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            });
+
+            const tokenDayIST = formatter.format(tokenDate);
+            const nowDayIST = formatter.format(new Date());
 
             if (tokenDayIST === nowDayIST) {
                 this.accessToken = data.access_token;
@@ -160,6 +178,8 @@ export class FyersService implements OnModuleInit {
                     this.logger.warn('Saved Fyers token is expired (from a previous day). Please re-authenticate.');
                     this.tokenLoadedOnce = true;
                 }
+                // Automatically clear the dead token from RAM so we don't try to use it
+                this.accessToken = null;
             }
         } catch (error) {
             this.logger.error('Failed to load Fyers token from database:', error.message);

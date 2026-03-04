@@ -65,8 +65,16 @@ export class FyersSocketService implements OnModuleInit {
 
             // Catch WS errors to prevent app crashes (e.g., 502 Bad Gateway)
             this.socket.on('error', (error: any) => {
-                this.logger.warn(`Fyers DataSocket Error Caught: ${error.message || error}`);
+                const errorMsg = error.message || error;
+                this.logger.warn(`Fyers DataSocket Error Caught: ${errorMsg}`);
                 this.isConnected = false;
+
+                if (typeof errorMsg === 'string' && (errorMsg.includes('403') || errorMsg.includes('401'))) {
+                    this.logger.error('Token rejected by Fyers. Clearing invalid token and stopping reconnects.');
+                    this.fyersService.clearToken();
+                    return; // Stop reconnect loop until new token is generated
+                }
+
                 // Wait 10s before attempting reconnect automatically
                 setTimeout(() => {
                     if (!this.isConnected) {
@@ -76,10 +84,11 @@ export class FyersSocketService implements OnModuleInit {
                 }, 10000);
             });
 
-            this.socket.on('close', () => {
+            this.socket.on('close', (event?: any) => {
                 this.isConnected = false;
-                this.logger.warn('Fyers DataSocket Closed ❌');
-                // Ensure reconnect happens if fyers internal autoreconnect fails
+                this.logger.warn(`Fyers DataSocket Closed ❌ (Code: ${event?.code}, Reason: ${event?.reason})`);
+
+                // Wait for potential new tokens to be generated before reconnecting
                 setTimeout(() => {
                     if (!this.isConnected) {
                         this.logger.log('Attempting manual reconnect after close...');
