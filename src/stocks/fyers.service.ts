@@ -17,7 +17,7 @@ export class FyersService implements OnModuleInit {
     ) {
         // Isolate tokens by environment to prevent "Token War" deletions
         this.tokenKey = process.env.RENDER === 'true' ? 'fyers_token_prod' : 'fyers_token_local';
-        this.logger.log(`FyersService Initialized. Key: ${this.tokenKey}. Build: v6-force-https`);
+        this.logger.log(`FyersService Initialized. Key: ${this.tokenKey}. Build: v7-strict-http`);
     }
 
     async onModuleInit() {
@@ -26,12 +26,7 @@ export class FyersService implements OnModuleInit {
 
     getLoginUrl(): string {
         const appId = this.configService.get<string>('FYERS_APP_ID')?.trim();
-        let redirectUrl = this.configService.get<string>('FYERS_REDIRECT_URL')?.trim();
-
-        // Force HTTPS on Render to prevent redirectUrl mismatch
-        if (process.env.RENDER === 'true' && redirectUrl?.startsWith('http://')) {
-            redirectUrl = redirectUrl.replace('http://', 'https://');
-        }
+        const redirectUrl = this.configService.get<string>('FYERS_REDIRECT_URL')?.trim();
 
         return `https://api-t1.fyers.in/api/v3/generate-authcode?client_id=${appId}&redirect_uri=${encodeURIComponent(
             redirectUrl || '',
@@ -41,12 +36,7 @@ export class FyersService implements OnModuleInit {
     async exchangeCodeForToken(authCode: string): Promise<string> {
         const appId = (this.configService.get<string>('FYERS_APP_ID') || '').replace(/['"]/g, '').trim();
         const appSecret = (this.configService.get<string>('FYERS_APP_SECRET') || '').replace(/['"]/g, '').trim();
-        let redirectUrl = this.configService.get<string>('FYERS_REDIRECT_URL')?.trim() || '';
-
-        // Force HTTPS on Render to match dashboard settings
-        if (process.env.RENDER === 'true' && redirectUrl.startsWith('http://')) {
-            redirectUrl = redirectUrl.replace('http://', 'https://');
-        }
+        const redirectUrl = this.configService.get<string>('FYERS_REDIRECT_URL')?.trim() || '';
 
         const fyers = new fyersModel();
         fyers.setAppId(appId);
