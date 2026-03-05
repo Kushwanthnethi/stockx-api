@@ -70,8 +70,8 @@ export class FyersSocketService implements OnModuleInit {
                 this.isConnected = false;
 
                 if (typeof errorMsg === 'string' && (errorMsg.includes('403') || errorMsg.includes('401'))) {
-                    this.logger.error(`Token rejected by Fyers (403/401). Clearing invalid token.`);
-                    await this.fyersService.clearToken();
+                    this.logger.error(`Token rejected by Fyers (403/401). Error: ${errorMsg}`);
+                    await this.fyersService.clearToken(token);
                     return;
                 }
 

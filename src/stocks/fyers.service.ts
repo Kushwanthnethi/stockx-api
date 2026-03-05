@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { fyersModel } from 'fyers-api-v3';
 import { PrismaService } from '../prisma/prisma.service';
 
-const FYERS_TOKEN_KEY = 'fyers_token_v4';
+const FYERS_TOKEN_KEY = 'fyers_token_v5';
 
 @Injectable()
 export class FyersService implements OnModuleInit {
@@ -128,16 +128,33 @@ export class FyersService implements OnModuleInit {
         }
     }
 
-    async clearToken() {
+    async clearToken(failedToken?: string) {
         this.accessToken = null;
         this.tokenLoadedOnce = false;
+
         try {
+            if (failedToken) {
+                // Peek at DB to see if it's the same token before deleting
+                const record = await this.prisma.appConfig.findUnique({
+                    where: { key: FYERS_TOKEN_KEY },
+                });
+
+                if (record) {
+                    const data = JSON.parse(record.value);
+                    if (data.access_token !== failedToken) {
+                        this.logger.log(`Skipping clearToken: DB already has a DIFFERENT (potentially newer) token.`);
+                        return;
+                    }
+                }
+            }
+
+            this.logger.warn(`CRITICAL: clearToken() confirmed. Deleting ${FYERS_TOKEN_KEY} from DB.`);
             await this.prisma.appConfig.delete({
                 where: { key: FYERS_TOKEN_KEY },
             });
-            this.logger.warn(`Invalid Fyers token cleared from database (Key: ${FYERS_TOKEN_KEY}).`);
+            this.logger.warn(`Successfully deleted ${FYERS_TOKEN_KEY} from database.`);
         } catch (error) {
-            // Ignore if already deleted
+            this.logger.debug(`clearToken() failed (likely record already gone): ${error.message}`);
         }
     }
 
