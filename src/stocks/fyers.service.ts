@@ -17,7 +17,7 @@ export class FyersService implements OnModuleInit {
     ) {
         // Isolate tokens by environment to prevent "Token War" deletions
         this.tokenKey = process.env.RENDER === 'true' ? 'fyers_token_prod' : 'fyers_token_local';
-        this.logger.log(`FyersService Initialized. Key: ${this.tokenKey}. Build: v8-explicit-302-redirect`);
+        this.logger.log(`FyersService Initialized. Key: ${this.tokenKey}. Build: v9-error-details`);
     }
 
     async onModuleInit() {
@@ -62,7 +62,7 @@ export class FyersService implements OnModuleInit {
                 return token;
             } else {
                 this.logger.error('Fyers token exchange failed. Response:', JSON.stringify(response));
-                const errorMsg = response.message || response.err_msg || 'Failed to generate access token';
+                const errorMsg = JSON.stringify(response) || 'Failed to generate access token (empty response)';
                 throw new Error(errorMsg);
             }
         } catch (error) {
