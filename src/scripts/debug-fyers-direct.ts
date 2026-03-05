@@ -8,7 +8,7 @@ const prisma = new PrismaClient();
 
 async function debugFyers() {
     const record = await prisma.appConfig.findUnique({
-        where: { key: 'fyers_access_token' }
+        where: { key: 'fyers_token_v4' }
     });
 
     if (!record) {

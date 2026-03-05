@@ -64,15 +64,15 @@ export class FyersSocketService implements OnModuleInit {
             });
 
             // Catch WS errors to prevent app crashes (e.g., 502 Bad Gateway)
-            this.socket.on('error', (error: any) => {
+            this.socket.on('error', async (error: any) => {
                 const errorMsg = error.message || error;
                 this.logger.warn(`Fyers DataSocket Error Caught: ${errorMsg}`);
                 this.isConnected = false;
 
                 if (typeof errorMsg === 'string' && (errorMsg.includes('403') || errorMsg.includes('401'))) {
-                    this.logger.error('Token rejected by Fyers. Clearing invalid token and stopping reconnects.');
-                    this.fyersService.clearToken();
-                    return; // Stop reconnect loop until new token is generated
+                    this.logger.error(`Token rejected by Fyers (403/401). Clearing invalid token.`);
+                    await this.fyersService.clearToken();
+                    return;
                 }
 
                 // Wait 10s before attempting reconnect automatically

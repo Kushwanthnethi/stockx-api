@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { fyersModel } from 'fyers-api-v3';
 import { PrismaService } from '../prisma/prisma.service';
 
-const FYERS_TOKEN_KEY = 'fyers_access_token';
+const FYERS_TOKEN_KEY = 'fyers_token_v4';
 
 @Injectable()
 export class FyersService implements OnModuleInit {
@@ -122,7 +122,7 @@ export class FyersService implements OnModuleInit {
                 update: { value: data },
                 create: { key: FYERS_TOKEN_KEY, value: data },
             });
-            this.logger.log('Fyers token persisted to database.');
+            this.logger.log(`Fyers token successfully persisted to database with key: ${FYERS_TOKEN_KEY}`);
         } catch (error) {
             this.logger.error('Failed to save Fyers token to database:', error.message);
         }
@@ -130,33 +130,35 @@ export class FyersService implements OnModuleInit {
 
     async clearToken() {
         this.accessToken = null;
-        this.tokenLoadedOnce = false; // allow it to warn again if needed
+        this.tokenLoadedOnce = false;
         try {
             await this.prisma.appConfig.delete({
                 where: { key: FYERS_TOKEN_KEY },
             });
-            this.logger.log('Fyers token cleared from database due to invalidity/expiration.');
+            this.logger.warn(`Invalid Fyers token cleared from database (Key: ${FYERS_TOKEN_KEY}).`);
         } catch (error) {
-            // Ignore if it's already deleted
+            // Ignore if already deleted
         }
     }
 
     private async loadTokenFromDb() {
         try {
+            this.logger.log(`Checking for Fyers token in DB with key: ${FYERS_TOKEN_KEY}`);
             const record = await this.prisma.appConfig.findUnique({
                 where: { key: FYERS_TOKEN_KEY },
             });
 
             if (!record) {
                 if (!this.tokenLoadedOnce) {
-                    this.logger.warn('No Fyers token found in database. Please authenticate.');
+                    this.logger.warn(`No Fyers token found in database for key '${FYERS_TOKEN_KEY}'. Please authenticate.`);
                     this.tokenLoadedOnce = true;
                 }
                 return;
             }
-
+            this.logger.log(`✅ Loaded active Fyers token from database (${FYERS_TOKEN_KEY}).`);
             const data = JSON.parse(record.value);
             const tokenDate = new Date(data.date);
+            // ... (rest of the logic remains)
 
             // Fyers tokens expire at midnight IST. 
             // We use simple math to get the IST date string (UTC + 5 hours 30 minutes)

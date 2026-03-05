@@ -1,14 +1,13 @@
-
+require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
 
 async function main() {
-    const stockCount = await prisma.stock.count();
-    const watchlistCount = await prisma.watchlist.count();
-    console.log(`Stocks: ${stockCount}`);
-    console.log(`Watchlist: ${watchlistCount}`);
-    const stocks = await prisma.stock.findMany({ take: 5 });
-    console.log('Sample Stocks:', JSON.stringify(stocks, null, 2));
+    const prisma = new PrismaClient();
+    console.log("Checking AppConfig Table...");
+    const config = await prisma.appConfig.findMany();
+    console.log("Found", config.length, "rows");
+    console.log(JSON.stringify(config, null, 2));
+    await prisma.$disconnect();
 }
 
-main().catch(console.error).finally(() => prisma.$disconnect());
+main().catch(console.error);

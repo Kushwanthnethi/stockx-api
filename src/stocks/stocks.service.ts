@@ -1041,7 +1041,8 @@ export class StocksService {
           }));
         }
       } catch (newsError) {
-        console.error('Failed to fetch news for earnings analysis', newsError);
+        // Suppress noisy Yahoo news validation errors as requested to focus on Fyers
+        this.logger.debug(`Yahoo News check skipped/failed for ${querySymbol}`);
       }
 
       const history = res.earnings?.earningsChart?.quarterly || [];
