@@ -4,18 +4,20 @@ import { ConfigService } from '@nestjs/config';
 import { fyersModel } from 'fyers-api-v3';
 import { PrismaService } from '../prisma/prisma.service';
 
-const FYERS_TOKEN_KEY = 'fyers_token_v5';
-
 @Injectable()
 export class FyersService implements OnModuleInit {
     private readonly logger = new Logger(FyersService.name);
     private accessToken: string | null = null;
     private tokenLoadedOnce = false; // Suppress repeated "expired" warnings
+    private readonly tokenKey: string;
 
     constructor(
         private configService: ConfigService,
         private prisma: PrismaService,
-    ) { }
+    ) {
+        // Isolate tokens by environment to prevent "Token War" deletions
+        this.tokenKey = process.env.RENDER === 'true' ? 'fyers_token_prod' : 'fyers_token_local';
+    }
 
     async onModuleInit() {
         await this.loadTokenFromDb();
@@ -118,11 +120,11 @@ export class FyersService implements OnModuleInit {
                 date: new Date().toISOString(),
             });
             await this.prisma.appConfig.upsert({
-                where: { key: FYERS_TOKEN_KEY },
+                where: { key: this.tokenKey },
                 update: { value: data },
-                create: { key: FYERS_TOKEN_KEY, value: data },
+                create: { key: this.tokenKey, value: data },
             });
-            this.logger.log(`Fyers token successfully persisted to database with key: ${FYERS_TOKEN_KEY}`);
+            this.logger.log(`Fyers token successfully persisted to database with key: ${this.tokenKey}`);
         } catch (error) {
             this.logger.error('Failed to save Fyers token to database:', error.message);
         }
@@ -136,7 +138,7 @@ export class FyersService implements OnModuleInit {
             if (failedToken) {
                 // Peek at DB to see if it's the same token before deleting
                 const record = await this.prisma.appConfig.findUnique({
-                    where: { key: FYERS_TOKEN_KEY },
+                    where: { key: this.tokenKey },
                 });
 
                 if (record) {
@@ -148,11 +150,11 @@ export class FyersService implements OnModuleInit {
                 }
             }
 
-            this.logger.warn(`CRITICAL: clearToken() confirmed. Deleting ${FYERS_TOKEN_KEY} from DB.`);
+            this.logger.warn(`CRITICAL: clearToken() confirmed. Deleting ${this.tokenKey} from DB.`);
             await this.prisma.appConfig.delete({
-                where: { key: FYERS_TOKEN_KEY },
+                where: { key: this.tokenKey },
             });
-            this.logger.warn(`Successfully deleted ${FYERS_TOKEN_KEY} from database.`);
+            this.logger.warn(`Successfully deleted ${this.tokenKey} from database.`);
         } catch (error) {
             this.logger.debug(`clearToken() failed (likely record already gone): ${error.message}`);
         }
@@ -160,19 +162,19 @@ export class FyersService implements OnModuleInit {
 
     private async loadTokenFromDb() {
         try {
-            this.logger.log(`Checking for Fyers token in DB with key: ${FYERS_TOKEN_KEY}`);
+            this.logger.log(`Checking for Fyers token in DB with key: ${this.tokenKey}`);
             const record = await this.prisma.appConfig.findUnique({
-                where: { key: FYERS_TOKEN_KEY },
+                where: { key: this.tokenKey },
             });
 
             if (!record) {
                 if (!this.tokenLoadedOnce) {
-                    this.logger.warn(`No Fyers token found in database for key '${FYERS_TOKEN_KEY}'. Please authenticate.`);
+                    this.logger.warn(`No Fyers token found in database for key '${this.tokenKey}'. Please authenticate.`);
                     this.tokenLoadedOnce = true;
                 }
                 return;
             }
-            this.logger.log(`✅ Loaded active Fyers token from database (${FYERS_TOKEN_KEY}).`);
+            this.logger.log(`✅ Loaded active Fyers token from database (${this.tokenKey}).`);
             const data = JSON.parse(record.value);
             const tokenDate = new Date(data.date);
             // ... (rest of the logic remains)
