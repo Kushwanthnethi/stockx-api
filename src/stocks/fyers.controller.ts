@@ -11,8 +11,10 @@ export class FyersController {
   @Get('login')
   login(@Res() res: Response) {
     const url = this.fyersService.getLoginUrl();
-    this.logger.log(`Redirecting to Fyers Login: ${url}`);
-    return res.redirect(url);
+    this.logger.log(`Redirecting to External Fyers Login: ${url}`);
+
+    // Using 302 Found explicitly for external redirection
+    return res.redirect(302, url);
   }
 
   @Get('callback')

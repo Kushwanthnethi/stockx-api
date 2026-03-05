@@ -17,7 +17,7 @@ export class FyersService implements OnModuleInit {
     ) {
         // Isolate tokens by environment to prevent "Token War" deletions
         this.tokenKey = process.env.RENDER === 'true' ? 'fyers_token_prod' : 'fyers_token_local';
-        this.logger.log(`FyersService Initialized. Key: ${this.tokenKey}. Build: v7-strict-http`);
+        this.logger.log(`FyersService Initialized. Key: ${this.tokenKey}. Build: v8-explicit-302-redirect`);
     }
 
     async onModuleInit() {
@@ -28,9 +28,12 @@ export class FyersService implements OnModuleInit {
         const appId = this.configService.get<string>('FYERS_APP_ID')?.trim();
         const redirectUrl = this.configService.get<string>('FYERS_REDIRECT_URL')?.trim();
 
-        return `https://api-t1.fyers.in/api/v3/generate-authcode?client_id=${appId}&redirect_uri=${encodeURIComponent(
+        const fyersAuthUrl = `https://api-t1.fyers.in/api/v3/generate-authcode?client_id=${appId}&redirect_uri=${encodeURIComponent(
             redirectUrl || '',
         )}&response_type=code&state=stockx`;
+
+        // This ensures NestJS and browsers always treat this as an external absolute URL
+        return fyersAuthUrl;
     }
 
     async exchangeCodeForToken(authCode: string): Promise<string> {
