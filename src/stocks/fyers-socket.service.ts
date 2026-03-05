@@ -46,7 +46,7 @@ export class FyersSocketService implements OnModuleInit {
             return;
         }
 
-        const appId = this.configService.get<string>('FYERS_APP_ID')?.replace(/['"]/g, '');
+        const appId = this.configService.get<string>('FYERS_APP_ID')?.replace(/['"]/g, '').trim();
         const fullToken = `${appId}:${token}`;
 
         try {

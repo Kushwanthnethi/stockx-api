@@ -22,8 +22,8 @@ export class FyersService implements OnModuleInit {
     }
 
     getLoginUrl(): string {
-        const appId = this.configService.get<string>('FYERS_APP_ID');
-        const redirectUrl = this.configService.get<string>('FYERS_REDIRECT_URL');
+        const appId = this.configService.get<string>('FYERS_APP_ID')?.trim();
+        const redirectUrl = this.configService.get<string>('FYERS_REDIRECT_URL')?.trim();
 
         return `https://api-t1.fyers.in/api/v3/generate-authcode?client_id=${appId}&redirect_uri=${encodeURIComponent(
             redirectUrl || '',
@@ -31,12 +31,12 @@ export class FyersService implements OnModuleInit {
     }
 
     async exchangeCodeForToken(authCode: string): Promise<string> {
-        const appId = (this.configService.get<string>('FYERS_APP_ID') || '').replace(/['"]/g, '');
-        const appSecret = (this.configService.get<string>('FYERS_APP_SECRET') || '').replace(/['"]/g, '');
+        const appId = (this.configService.get<string>('FYERS_APP_ID') || '').replace(/['"]/g, '').trim();
+        const appSecret = (this.configService.get<string>('FYERS_APP_SECRET') || '').replace(/['"]/g, '').trim();
 
         const fyers = new fyersModel();
         fyers.setAppId(appId);
-        fyers.setRedirectUrl(this.configService.get<string>('FYERS_REDIRECT_URL') || '');
+        fyers.setRedirectUrl(this.configService.get<string>('FYERS_REDIRECT_URL')?.trim() || '');
 
         try {
             const response = await fyers.generate_access_token({
@@ -72,7 +72,7 @@ export class FyersService implements OnModuleInit {
         const token = await this.getAccessToken();
         if (!token) return null;
 
-        const appId = (this.configService.get<string>('FYERS_APP_ID') || '').replace(/['"]/g, '');
+        const appId = (this.configService.get<string>('FYERS_APP_ID') || '').replace(/['"]/g, '').trim();
         const fyers = new fyersModel();
         fyers.setAppId(appId);
         fyers.setAccessToken(token);
@@ -90,7 +90,7 @@ export class FyersService implements OnModuleInit {
         const token = await this.getAccessToken();
         if (!token) return null;
 
-        const appId = (this.configService.get<string>('FYERS_APP_ID') || '').replace(/['"]/g, '');
+        const appId = (this.configService.get<string>('FYERS_APP_ID') || '').replace(/['"]/g, '').trim();
         const fyers = new fyersModel();
         fyers.setAppId(appId);
         fyers.setAccessToken(token);
