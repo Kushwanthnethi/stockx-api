@@ -296,7 +296,14 @@ export class StocksService {
     // Check if data is stale (Indices: 1 min, Stocks: 15 mins, Live Market: 30 secs)
     const isSpecialIndex = symbol === 'NIFTY 50' || symbol === 'SENSEX' || symbol.startsWith('^');
     const marketOpen = isMarketOpen();
-    const staleThreshold = isSpecialIndex ? 1 * 60 * 1000 : (marketOpen ? 30 * 1000 : 15 * 60 * 1000);
+
+    // If market is closed, we don't treat DB data as stale just because of time,
+    // since Angel One stopped sending ticks. We only fetch if it's REALLY old (e.g. > 1 day)
+    // or if we have no valid price.
+    const staleThreshold = marketOpen
+      ? (isSpecialIndex ? 1 * 60 * 1000 : 30 * 1000)
+      : 24 * 60 * 60 * 1000; // 24 hours when closed
+
     const staleTime = new Date(Date.now() - staleThreshold);
 
     if (
@@ -1571,75 +1578,39 @@ export class StocksService {
         { query: '^NSEMDCP50', label: 'NIFTY MIDCAP 50', fallbackPrice: 15000 },
       ];
 
-      // OPTIMIZATION: Use Yahoo Finance batch query for indices
-      const symbolsToFetch = indexSymbols.map((idx: any) => {
-        let qs = idx.query;
-        if (qs === 'NIFTY 50') qs = '^NSEI';
-        if (qs === 'SENSEX') qs = '^BSESN';
-        if (qs === 'NIFTY BANK') qs = '^NSEBANK';
-        return qs;
+      // Query the database directly for all defined indices
+      // This ensures we rely completely on Angel One WebSocket updates and avoid Yahoo's 0% post-market resets
+      const queries = indexSymbols.map(idx => idx.query);
+
+      const dbStocks = await this.prisma.stock.findMany({
+        where: { symbol: { in: queries } }
       });
 
       const results: any[] = [];
 
-      try {
-        const yahooQuotes = await this.getQuotes(symbolsToFetch);
+      for (const cfg of indexSymbols) {
+        const dbStock = dbStocks.find(s => s.symbol === cfg.query);
 
-        for (let i = 0; i < indexSymbols.length; i++) {
-          const cfg = indexSymbols[i];
-          const yq = yahooQuotes.find((q: any) => q.symbol === symbolsToFetch[i]);
+        if (dbStock && dbStock.currentPrice) {
+          const price = dbStock.currentPrice;
+          const chp = dbStock.changePercent || 0;
+          const change = (price * (chp / 100)) / (1 + (chp / 100));
 
-          if (yq && yq.regularMarketPrice) {
-            const price = yq.regularMarketPrice;
-            // Use regularMarketChangePercent instead of changePercent
-            const chp = (yq as any).regularMarketChangePercent || (yq as any).changePercent || 0;
-            const change = (price * (chp / 100)) / (1 + (chp / 100));
-
-            results.push({
-              symbol: cfg.label,
-              price,
-              change,
-              changePercent: chp,
-            });
-
-            // Background DB upsert (lightweight, no JOINs, fire-and-forget)
-            this.prisma.stock.upsert({
-              where: { symbol: cfg.query },
-              update: {
-                currentPrice: price,
-                changePercent: chp,
-                highDay: yq.regularMarketDayHigh || null,
-                lowDay: yq.regularMarketDayLow || null,
-                lastUpdated: new Date(),
-              },
-              create: {
-                symbol: cfg.query,
-                companyName: cfg.label,
-                exchange: cfg.query.startsWith('BSE') ? 'BSE' : 'NSE',
-                currentPrice: price,
-                lastUpdated: new Date(),
-              },
-            }).catch(() => { });
-          } else {
-            results.push({
-              symbol: cfg.label,
-              price: cfg.fallbackPrice,
-              change: 0,
-              changePercent: 0,
-            });
-          }
-        }
-      } catch (err) {
-        this.logger.error('Failed to fetch indices from Yahoo', err);
-        // Return fallbacks
-        indexSymbols.forEach(cfg => {
+          results.push({
+            symbol: cfg.label,
+            price,
+            change,
+            changePercent: chp,
+          });
+        } else {
+          // If not in DB yet, use fallback 
           results.push({
             symbol: cfg.label,
             price: cfg.fallbackPrice,
             change: 0,
             changePercent: 0,
           });
-        });
+        }
       }
 
       // Cache the results
