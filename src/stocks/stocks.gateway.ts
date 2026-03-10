@@ -7,16 +7,11 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { AngelOneSocketService } from './angel-one-socket.service';
 
 @WebSocketGateway({
     cors: {
-        origin: [
-            'http://localhost:3000',
-            'http://localhost:3001',
-            'https://stockx-web.vercel.app',
-            'https://www.stocksx.info',
-            'https://stocksx.info',
-        ],
+        origin: ['http://localhost:3000', 'https://stocksx.in', 'https://www.stocksx.in'],
         credentials: true,
     },
     transports: ['websocket', 'polling'],
@@ -28,6 +23,32 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     private readonly logger = new Logger(StocksGateway.name);
     private subscribedSymbols: Map<string, Set<string>> = new Map();
+
+    // Bidirectional alias map: Angel One internal symbols <-> display labels
+    private readonly symbolAliasMap: Map<string, string[]> = new Map([
+        ['^NSEI', ['NIFTY 50']],
+        ['^NSEBANK', ['NIFTY BANK']],
+        ['^BSESN', ['SENSEX']],
+        ['^CNXIT', ['NIFTY IT']],
+        ['^CNXPHARMA', ['NIFTY PHARMA']],
+        ['^CNXAUTO', ['NIFTY AUTO']],
+        ['^CNXFMCG', ['NIFTY FMCG']],
+        ['^CNXMETAL', ['NIFTY METAL']],
+        ['^CNXREALTY', ['NIFTY REALTY']],
+        ['^CNXENERGY', ['NIFTY ENERGY']],
+        ['^NSEMDCP50', ['NIFTY MIDCAP 50']],
+        ['NIFTY 50', ['^NSEI']],
+        ['NIFTY BANK', ['^NSEBANK']],
+        ['SENSEX', ['^BSESN']],
+        ['NIFTY IT', ['^CNXIT']],
+        ['NIFTY PHARMA', ['^CNXPHARMA']],
+        ['NIFTY AUTO', ['^CNXAUTO']],
+        ['NIFTY FMCG', ['^CNXFMCG']],
+        ['NIFTY METAL', ['^CNXMETAL']],
+        ['NIFTY REALTY', ['^CNXREALTY']],
+        ['NIFTY ENERGY', ['^CNXENERGY']],
+        ['NIFTY MIDCAP 50', ['^NSEMDCP50']],
+    ]);
 
     handleConnection(client: Socket) {
         this.logger.debug(`Client connected: ${client.id}`);
@@ -84,14 +105,19 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     sendPriceUpdate(symbol: string, data: any) {
-        const roomName = `stock_${symbol}`;
-        const room = this.server.sockets.adapter.rooms.get(roomName);
-        const count = room ? room.size : 0;
+        // Emit to the primary room
+        const primaryRoom = `stock_${symbol}`;
+        this.server.to(primaryRoom).emit('priceUpdate', data);
 
-        // Tick logs suppressed — too noisy for prod. Re-enable via debug if needed.
-        // this.logger.debug(`[Gateway] Emitting ${symbol} update to ${count} clients. Price: ${data.price}`);
-
-        this.server.to(roomName).emit('priceUpdate', data);
+        // Also emit to all alias rooms (e.g., ^NSEI -> NIFTY 50)
+        const aliases = this.symbolAliasMap.get(symbol);
+        if (aliases) {
+            for (const alias of aliases) {
+                const aliasRoom = `stock_${alias}`;
+                // Emit with data.symbol set to the alias so frontend's check passes
+                this.server.to(aliasRoom).emit('priceUpdate', { ...data, symbol: alias });
+            }
+        }
     }
 
     getAllSubscribedSymbols(): string[] {

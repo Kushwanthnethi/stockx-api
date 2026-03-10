@@ -1,9 +1,27 @@
 import { Controller, Get, Param, Query, Post, Body } from '@nestjs/common';
 import { StocksService } from './stocks.service';
+import { AngelOneService } from './angel-one.service';
 
 @Controller('stocks')
 export class StocksController {
-  constructor(private readonly stocksService: StocksService) { }
+  constructor(
+    private readonly stocksService: StocksService,
+    private readonly angelOneService: AngelOneService
+  ) { }
+
+  @Get('angel-auth-test')
+  async testAngelAuth() {
+    console.log('--- Testing Angel Auth via API ---');
+    const result = await this.angelOneService.login();
+    if (result) {
+      return {
+        status: 'success',
+        jwt: this.angelOneService.getJwtToken()?.substring(0, 20) + '...',
+        feed: this.angelOneService.getFeedToken()?.substring(0, 20) + '...'
+      };
+    }
+    return { status: 'failed' };
+  }
 
   @Get()
   findAll() {

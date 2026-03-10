@@ -41,6 +41,7 @@ export class StockOfTheWeekService implements OnModuleInit {
     const currentSunday = this.getCurrentSundayIST();
 
     // 2. Fetch latest record
+    /*
     const latest = await this.prisma.stockOfTheWeek.findFirst({
       orderBy: { weekStartDate: 'desc' },
     });
@@ -55,8 +56,10 @@ export class StockOfTheWeekService implements OnModuleInit {
       // Wait for 5s to ensure everything else is initialized
       setTimeout(() => this.handleWeeklySelection(), 5000);
     }
+    */
 
     // Always run a sync for Max High on startup for active picks, but with cooldown
+    /*
     const now = Date.now();
     if (now - this.lastSyncTime > this.SYNC_COOLDOWN) {
       this.logger.log('Cooldowned startup sync for Max High triggered.');
@@ -64,6 +67,7 @@ export class StockOfTheWeekService implements OnModuleInit {
     } else {
       this.logger.log('Skipping startup sync due to cooldown.');
     }
+    */
   }
 
   // Run every Sunday at 12:00 PM IST (6:30 AM UTC)
@@ -657,7 +661,7 @@ Winner = Best combination of: Quant Score (40%) + News Score (30%) + Technical/M
 
       // 2. Update SOW performance tracking
       for (const pick of activePicks) {
-        const quote = quotes.find(q => q.symbol === pick.stockSymbol);
+        const quote = quotes.find((q: any) => q.symbol === pick.stockSymbol);
 
         if (quote && quote.regularMarketDayHigh) {
           const dayHigh = quote.regularMarketDayHigh;

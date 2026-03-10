@@ -12,17 +12,17 @@ import { ScrapeController } from '../controllers/scrape.controller';
 import { BseScraperService } from '../services/bse-scraper.service';
 
 import { YahooFinanceService } from './yahoo-finance.service';
-import { FyersService } from './fyers.service';
-import { FyersController } from './fyers.controller';
 import { StocksGateway } from './stocks.gateway';
-import { FyersSocketService } from './fyers-socket.service';
+import { AngelOneService } from './angel-one.service';
+import { AngelInstrumentService } from './angel-instrument.service';
+import { AngelOneSocketService } from './angel-one-socket.service';
 import { SowReportService } from './sow-report.service';
 import { MailService } from '../services/mail.service';
 import { GroqService } from '../services/groq.service';
 
 @Module({
   imports: [PrismaModule, ConfigModule],
-  controllers: [StocksController, StockOfTheWeekController, VerdictsController, ScrapeController, FyersController],
+  controllers: [StocksController, StockOfTheWeekController, VerdictsController, ScrapeController],
   providers: [
     StocksService,
     StockOfTheWeekService,
@@ -30,14 +30,15 @@ import { GroqService } from '../services/groq.service';
     AIConfigService,
     BseScraperService,
     YahooFinanceService,
-    FyersService,
+    AngelOneService,
+    AngelInstrumentService,
     StocksGateway,
-    FyersSocketService,
+    AngelOneSocketService,
     SowReportService,
     MailService,
     GroqService,
   ],
-  exports: [StocksService, AIConfigService, YahooFinanceService, FyersService],
+  exports: [StocksService, AIConfigService, YahooFinanceService, AngelOneService, AngelInstrumentService],
 })
 export class StocksModule { }
 

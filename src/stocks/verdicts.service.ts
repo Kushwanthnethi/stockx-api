@@ -83,6 +83,7 @@ export class VerdictsService implements OnModuleInit {
   async onModuleInit() {
     this.markNifty50Stocks();
     // Start background pre-computation after 15s startup delay
+    /*
     setTimeout(() => {
       this.preComputeInstitutionalData();
     }, 15000);
@@ -91,6 +92,7 @@ export class VerdictsService implements OnModuleInit {
       () => this.preComputeInstitutionalData(),
       this.PRECOMPUTE_INTERVAL,
     );
+    */
   }
 
   // Helper to ensure isNifty50 flag is set correctly
