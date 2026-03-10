@@ -132,6 +132,13 @@ export class AngelInstrumentService implements OnModuleInit {
             this.symbolToTokenMap.set('^NSEMDCP50', '99926014');
             this.symbolToTokenMap.set('NIFTY MIDCAP 50', '99926014');
 
+            // Hardcode aliases for renamed/mismatched stocks
+            // Yahoo symbol -> Angel One token (where DB has old/different name)
+            this.symbolToTokenMap.set('ZOMATO.NS', '5097');      // Zomato → Eternal
+            this.symbolToTokenMap.set('AU_BANK.NS', '21238');    // AU_BANK → AUBANK
+            this.symbolToTokenMap.set('GMRINFRA.NS', '13528');   // GMR Infra → GMR Airports
+            this.symbolToTokenMap.set('L&TFH.NS', '24948');      // L&T Finance Holdings → LTF
+
             this.logger.log(`Parsed ${this.instruments.size} instruments into memory.`);
         } catch (err) {
             this.logger.error(`Error parsing instruments: ${err.message}`);
