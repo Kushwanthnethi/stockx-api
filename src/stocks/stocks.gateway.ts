@@ -11,7 +11,14 @@ import { AngelOneSocketService } from './angel-one-socket.service';
 
 @WebSocketGateway({
     cors: {
-        origin: ['http://localhost:3000', 'https://stocksx.in', 'https://www.stocksx.in'],
+        origin: [
+            'http://localhost:3000',
+            'https://stocksx.in',
+            'https://www.stocksx.in',
+            'https://stocksx.info',
+            'https://www.stocksx.info',
+            'https://stockx-web.vercel.app',
+        ],
         credentials: true,
     },
     transports: ['websocket', 'polling'],
