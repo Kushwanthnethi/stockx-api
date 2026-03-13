@@ -1583,6 +1583,79 @@ export class StocksService {
   // Short cache for movers to avoid hammering quote APIs on frequent UI refresh.
   private marketMoversCache: { data: any; timestamp: number } | null = null;
   private readonly MARKET_MOVERS_CACHE_TTL = 500;
+  private readonly MARKET_MOVERS_SPARKLINE_TTL = 30_000;
+  private marketMoverSparklineCache: Map<string, { data: number[]; timestamp: number }> = new Map();
+
+  private compressSeries(values: number[], target = 24) {
+    if (!values || values.length === 0) return [];
+    if (values.length <= target) return values;
+    const out: number[] = [];
+    const lastIndex = values.length - 1;
+    const step = lastIndex / (target - 1);
+    for (let i = 0; i < target; i++) {
+      out.push(values[Math.round(i * step)]);
+    }
+    return out;
+  }
+
+  private isSeriesTooFlat(values: number[]) {
+    if (!values || values.length < 4) return true;
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const base = values[values.length - 1] || values[0] || 1;
+    if (!base) return true;
+
+    // If total movement is less than 0.12% it's visually almost flat in tiny widgets.
+    return ((max - min) / base) < 0.0012;
+  }
+
+  private extractTypicalPrices(rows: any[]) {
+    return (rows || [])
+      .map((p: any) => {
+        const high = Number(p?.high);
+        const low = Number(p?.low);
+        const close = Number(p?.close ?? p?.price);
+
+        if (Number.isFinite(high) && Number.isFinite(low) && Number.isFinite(close) && high > 0 && low > 0 && close > 0) {
+          return (high + low + close) / 3;
+        }
+        const fallback = Number(p?.price ?? p?.close);
+        return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+      })
+      .filter((v: number | null) => v !== null) as number[];
+  }
+
+  private async getAccurateMoverSparkline(symbol: string) {
+    const now = Date.now();
+    const cached = this.marketMoverSparklineCache.get(symbol);
+    if (cached && now - cached.timestamp < this.MARKET_MOVERS_SPARKLINE_TTL) {
+      return cached.data;
+    }
+
+    // Prefer intraday candles for accuracy.
+    const history1d = await this.getHistory(symbol, '1d').catch(() => [] as any[]);
+    let prices = this.extractTypicalPrices(history1d);
+
+    // If 1d is sparse or too flat, switch to 1w for a more representative trend shape.
+    if (prices.length < 12 || this.isSeriesTooFlat(prices)) {
+      const history1w = await this.getHistory(symbol, '1w').catch(() => [] as any[]);
+      const weekly = this.extractTypicalPrices(history1w);
+      if (weekly.length >= 8) {
+        prices = weekly;
+      }
+    }
+
+    let series = this.compressSeries(prices.slice(-120), 24);
+
+    // Blend in freshest live price so sparkline end-point tracks the current tick.
+    const live = this.angelOneSocketService.getLatestQuote(symbol);
+    if (live?.price && series.length > 0) {
+      series = [...series.slice(0, -1), live.price];
+    }
+
+    this.marketMoverSparklineCache.set(symbol, { data: series, timestamp: now });
+    return series;
+  }
 
   async getMarketMovers() {
     try {
@@ -1640,11 +1713,20 @@ export class StocksService {
       const allMovers = [...gainers, ...losers, ...active];
       const uniqueSymbols = [...new Set(allMovers.map(s => s.symbol))];
 
-      // 4. Build sparkline data from Angel websocket recent ticks.
+      // 4. Build accurate sparkline data from intraday candles, then blend latest live tick.
       const sparklineMap = new Map<string, number[]>();
-      for (const symbol of uniqueSymbols) {
-        sparklineMap.set(symbol, this.angelOneSocketService.getRecentPrices(symbol, 7));
-      }
+      await Promise.all(
+        uniqueSymbols.map(async (symbol) => {
+          let spark = await this.getAccurateMoverSparkline(symbol);
+
+          // Fallback to live micro-series only when history is unavailable.
+          if (!spark || spark.length < 2) {
+            spark = this.angelOneSocketService.getRecentPrices(symbol, 24);
+          }
+
+          sparklineMap.set(symbol, spark || []);
+        }),
+      );
 
       // 5. Attach sparkline and live quote values
       const enrich = (stocks: typeof gainers) =>
@@ -1958,14 +2040,36 @@ export class StocksService {
       await Promise.all(staleStocks.map((w) => this.findOne(w.stockSymbol)));
 
       // Re-fetch to get updated values
-      return this.prisma.watchlist.findMany({
+      const refreshed = await this.prisma.watchlist.findMany({
         where: { userId },
         include: { stock: true },
         orderBy: { createdAt: 'desc' },
       });
+
+      const withSparkline = await Promise.all(
+        refreshed.map(async (item) => ({
+          ...item,
+          stock: {
+            ...item.stock,
+            sparkline: await this.getAccurateMoverSparkline(item.stock.symbol),
+          },
+        })),
+      );
+
+      return withSparkline;
     }
 
-    return watchlist;
+    const withSparkline = await Promise.all(
+      watchlist.map(async (item) => ({
+        ...item,
+        stock: {
+          ...item.stock,
+          sparkline: await this.getAccurateMoverSparkline(item.stock.symbol),
+        },
+      })),
+    );
+
+    return withSparkline;
   }
 
   async getTechnicalAnalysis(symbol: string) {
