@@ -10,6 +10,8 @@ import { WebSocketV2 } from 'smartapi-javascript';
 @Injectable()
 export class AngelOneSocketService implements OnModuleInit {
     private readonly logger = new Logger(AngelOneSocketService.name);
+    private readonly dbUpdateThrottleMs = 10_000;
+    private readonly maxRecentPrices = 30;
     private socket: any;
     private isConnected = false;
     private currentSubscribedTokens: Set<string> = new Set();
@@ -18,11 +20,29 @@ export class AngelOneSocketService implements OnModuleInit {
     // Reconnect logic
     private reconnectTimeout: any;
     private lastDbUpdateMap: Map<string, number> = new Map();
+    private latestQuoteBySymbol: Map<string, { price: number; change: number; changePercent: number; timestamp: number }> = new Map();
+    private recentPricesBySymbol: Map<string, number[]> = new Map();
+
+    // Keep DB index rows in sync for both internal and display symbols.
+    private readonly internalToDbSymbolsMap: Map<string, string[]> = new Map([
+        ['^NSEI', ['^NSEI', 'NIFTY 50']],
+        ['^NSEBANK', ['^NSEBANK', 'NIFTY BANK']],
+        ['^BSESN', ['^BSESN', 'SENSEX']],
+        ['^CNXIT', ['^CNXIT']],
+        ['^CNXPHARMA', ['^CNXPHARMA']],
+        ['^CNXAUTO', ['^CNXAUTO']],
+        ['^CNXFMCG', ['^CNXFMCG']],
+        ['^CNXMETAL', ['^CNXMETAL']],
+        ['^CNXREALTY', ['^CNXREALTY']],
+        ['^CNXENERGY', ['^CNXENERGY']],
+        ['^NSEMDCP50', ['^NSEMDCP50']],
+    ]);
 
     // Map display labels to internal symbols for subscription resolution
     private readonly displayToInternalMap: Map<string, string> = new Map([
         ['NIFTY 50', '^NSEI'],
         ['NIFTY BANK', '^NSEBANK'],
+        ['BANKNIFTY', '^NSEBANK'],
         ['SENSEX', '^BSESN'],
         ['NIFTY IT', '^CNXIT'],
         ['NIFTY PHARMA', '^CNXPHARMA'],
@@ -130,6 +150,61 @@ export class AngelOneSocketService implements OnModuleInit {
         }, 10000);
     }
 
+    getRuntimeStatus() {
+        return {
+            isConnected: this.isConnected,
+            permanentSubscriptionsInitialized: this.permanentSubsInitialized,
+            permanentTokenCount: this.permanentSubscribedTokens.size,
+            dynamicTokenCount: this.currentSubscribedTokens.size,
+            liveQuoteCount: this.latestQuoteBySymbol.size,
+        };
+    }
+
+    private normalizeLookupSymbol(symbol: string): string {
+        const raw = (symbol || '').toUpperCase().trim();
+        if (!raw) return raw;
+
+        const internal = this.displayToInternalMap.get(raw);
+        if (internal) return internal;
+
+        const isIndex = raw.startsWith('NIFTY') || raw === 'BANKNIFTY' || raw === 'SENSEX' || raw.startsWith('^');
+        if (!raw.includes('.') && !isIndex) {
+            return `${raw}.NS`;
+        }
+
+        return raw;
+    }
+
+    getLatestQuote(symbol: string, maxAgeMs = 15_000) {
+        const normalized = this.normalizeLookupSymbol(symbol);
+        const quote = this.latestQuoteBySymbol.get(normalized);
+        if (!quote) return null;
+        if (Date.now() - quote.timestamp > maxAgeMs) return null;
+        return quote;
+    }
+
+    getRecentPrices(symbol: string, limit = 7) {
+        const normalized = this.normalizeLookupSymbol(symbol);
+        const values = this.recentPricesBySymbol.get(normalized) || [];
+        return values.slice(-Math.max(1, limit));
+    }
+
+    private upsertLiveQuote(symbol: string, price: number, change: number, changePercent: number) {
+        this.latestQuoteBySymbol.set(symbol, {
+            price,
+            change,
+            changePercent,
+            timestamp: Date.now(),
+        });
+
+        const series = this.recentPricesBySymbol.get(symbol) || [];
+        series.push(price);
+        if (series.length > this.maxRecentPrices) {
+            series.shift();
+        }
+        this.recentPricesBySymbol.set(symbol, series);
+    }
+
     private handleMessage(message: any) {
         if (!message) return;
 
@@ -162,14 +237,21 @@ export class AngelOneSocketService implements OnModuleInit {
                 symbol: symbol,
             });
 
-            // Update Database (Throttled to once per 30 seconds per stock to avoid DB overload)
-            const now = Date.now();
-            const lastUpdate = this.lastDbUpdateMap.get(symbol) || 0;
+            this.upsertLiveQuote(symbol, price, change, changePercent);
 
-            if (now - lastUpdate > 30000) {
-                this.lastDbUpdateMap.set(symbol, now);
+            // Update Database (Throttled to once per 30 seconds per stock to avoid DB overload)
+            const targets = this.internalToDbSymbolsMap.get(symbol) || [symbol];
+
+            for (const dbSymbol of targets) {
+                this.upsertLiveQuote(dbSymbol, price, change, changePercent);
+
+                const now = Date.now();
+                const lastUpdate = this.lastDbUpdateMap.get(dbSymbol) || 0;
+                if (now - lastUpdate <= this.dbUpdateThrottleMs) continue;
+
+                this.lastDbUpdateMap.set(dbSymbol, now);
                 this.prisma.stock.update({
-                    where: { symbol: symbol },
+                    where: { symbol: dbSymbol },
                     data: {
                         currentPrice: price,
                         changePercent: changePercent !== 0 ? changePercent : undefined,
@@ -242,11 +324,11 @@ export class AngelOneSocketService implements OnModuleInit {
 
             if (nseTokens.length > 0) {
                 this.logger.log(`Subscribing to ${nseTokens.length} new dynamic NSE tokens.`);
-                this.socket.fetchData({ correlationID: 'dyn_nse', action: 1, mode: 1, exchangeType: 1, tokens: nseTokens });
+                this.socket.fetchData({ correlationID: 'dyn_nse', action: 1, mode: 2, exchangeType: 1, tokens: nseTokens });
             }
             if (bseTokens.length > 0) {
                 this.logger.log(`Subscribing to ${bseTokens.length} new dynamic BSE tokens.`);
-                this.socket.fetchData({ correlationID: 'dyn_bse', action: 1, mode: 1, exchangeType: 3, tokens: bseTokens });
+                this.socket.fetchData({ correlationID: 'dyn_bse', action: 1, mode: 2, exchangeType: 3, tokens: bseTokens });
             }
 
             tokensToAdd.forEach((t) => this.currentSubscribedTokens.add(t));
@@ -261,13 +343,13 @@ export class AngelOneSocketService implements OnModuleInit {
             const nseDyn = dynTokens.filter(t => this.instrumentService.getExchangeSegment(t) === 'NSE');
 
             if (nsePerm.length > 0) this.socket.fetchData({ correlationID: 'f_p_nse', action: 1, mode: 2, exchangeType: 1, tokens: nsePerm });
-            if (nseDyn.length > 0) this.socket.fetchData({ correlationID: 'f_d_nse', action: 1, mode: 1, exchangeType: 1, tokens: nseDyn });
+            if (nseDyn.length > 0) this.socket.fetchData({ correlationID: 'f_d_nse', action: 1, mode: 2, exchangeType: 1, tokens: nseDyn });
 
             const bsePerm = permTokens.filter(t => this.instrumentService.getExchangeSegment(t) === 'BSE');
             const bseDyn = dynTokens.filter(t => this.instrumentService.getExchangeSegment(t) === 'BSE');
 
             if (bsePerm.length > 0) this.socket.fetchData({ correlationID: 'f_p_bse', action: 1, mode: 2, exchangeType: 3, tokens: bsePerm });
-            if (bseDyn.length > 0) this.socket.fetchData({ correlationID: 'f_d_bse', action: 1, mode: 1, exchangeType: 3, tokens: bseDyn });
+            if (bseDyn.length > 0) this.socket.fetchData({ correlationID: 'f_d_bse', action: 1, mode: 2, exchangeType: 3, tokens: bseDyn });
         }
     }
 }

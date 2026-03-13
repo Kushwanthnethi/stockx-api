@@ -34,7 +34,7 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Bidirectional alias map: Angel One internal symbols <-> display labels
     private readonly symbolAliasMap: Map<string, string[]> = new Map([
         ['^NSEI', ['NIFTY 50']],
-        ['^NSEBANK', ['NIFTY BANK']],
+        ['^NSEBANK', ['NIFTY BANK', 'BANKNIFTY']],
         ['^BSESN', ['SENSEX']],
         ['^CNXIT', ['NIFTY IT']],
         ['^CNXPHARMA', ['NIFTY PHARMA']],
@@ -46,6 +46,7 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
         ['^NSEMDCP50', ['NIFTY MIDCAP 50']],
         ['NIFTY 50', ['^NSEI']],
         ['NIFTY BANK', ['^NSEBANK']],
+        ['BANKNIFTY', ['^NSEBANK']],
         ['SENSEX', ['^BSESN']],
         ['NIFTY IT', ['^CNXIT']],
         ['NIFTY PHARMA', ['^CNXPHARMA']],
@@ -73,7 +74,7 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
         // Normalize symbol (RELIANCE -> RELIANCE.NS, but keep NIFTY 50 as is)
         let normalizedSymbol = symbol.toUpperCase();
-        const isIndex = normalizedSymbol.startsWith('NIFTY') || normalizedSymbol === 'SENSEX' || normalizedSymbol.startsWith('^');
+        const isIndex = normalizedSymbol.startsWith('NIFTY') || normalizedSymbol === 'BANKNIFTY' || normalizedSymbol === 'SENSEX' || normalizedSymbol.startsWith('^');
 
         if (!normalizedSymbol.includes('.') && !isIndex) {
             normalizedSymbol = `${normalizedSymbol}.NS`;
@@ -95,7 +96,7 @@ export class StocksGateway implements OnGatewayConnection, OnGatewayDisconnect {
         if (!symbol) return;
 
         let normalizedSymbol = symbol.toUpperCase();
-        const isIndex = normalizedSymbol.startsWith('NIFTY') || normalizedSymbol === 'SENSEX' || normalizedSymbol.startsWith('^');
+        const isIndex = normalizedSymbol.startsWith('NIFTY') || normalizedSymbol === 'BANKNIFTY' || normalizedSymbol === 'SENSEX' || normalizedSymbol.startsWith('^');
 
         if (!normalizedSymbol.includes('.') && !isIndex) {
             normalizedSymbol = `${normalizedSymbol}.NS`;

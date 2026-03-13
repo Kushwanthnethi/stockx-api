@@ -1,12 +1,14 @@
 import { Controller, Get, Param, Query, Post, Body } from '@nestjs/common';
 import { StocksService } from './stocks.service';
 import { AngelOneService } from './angel-one.service';
+import { AngelOneSocketService } from './angel-one-socket.service';
 
 @Controller('stocks')
 export class StocksController {
   constructor(
     private readonly stocksService: StocksService,
-    private readonly angelOneService: AngelOneService
+    private readonly angelOneService: AngelOneService,
+    private readonly angelOneSocketService: AngelOneSocketService,
   ) { }
 
   @Get('angel-auth-test')
@@ -46,6 +48,60 @@ export class StocksController {
   @Get('indices')
   getIndices() {
     return this.stocksService.getIndices();
+  }
+
+  @Get('angel-mapping-health')
+  getAngelMappingHealth() {
+    return this.stocksService.getAngelMappingHealth();
+  }
+
+  @Get('angel-live-audit')
+  getAngelLiveAudit(
+    @Query('details') details?: string,
+    @Query('limit') limit = 200,
+  ) {
+    return this.stocksService.getAngelLiveAudit(details === 'true', Number(limit));
+  }
+
+  @Get('open-readiness')
+  async getOpenReadiness() {
+    const mapping = await this.stocksService.getAngelMappingHealth();
+    const angel = this.angelOneService.getRuntimeStatus();
+    const socket = this.angelOneSocketService.getRuntimeStatus();
+
+    const blockers: string[] = [];
+    const warnings: string[] = [];
+
+    if (!angel.hasApiKey || !angel.hasClientId || !angel.hasPin || !angel.hasTotpSecret) {
+      blockers.push('Angel One credentials are incomplete.');
+    }
+    if (!angel.hasJwtToken || !angel.hasFeedToken) {
+      blockers.push('Angel One runtime tokens are missing.');
+    }
+    if (!socket.isConnected) {
+      blockers.push('Angel One websocket is not connected.');
+    }
+    if (!socket.permanentSubscriptionsInitialized) {
+      warnings.push('Permanent subscriptions are not initialized yet.');
+    }
+    if (mapping.missing > 0) {
+      warnings.push(`${mapping.missing} tracked/index symbols are not mapped to Angel tokens.`);
+    }
+
+    return {
+      ready: blockers.length === 0,
+      blockers,
+      warnings,
+      angel,
+      socket,
+      mappingSummary: {
+        checked: mapping.checked,
+        mapped: mapping.mapped,
+        missing: mapping.missing,
+        missingSymbols: mapping.missingSymbols,
+      },
+      note: 'Ready means core Angel auth, socket, and tracked-symbol mapping look healthy. It does not guarantee zero latency for every DB stock symbol.',
+    };
   }
 
   @Post('batch')

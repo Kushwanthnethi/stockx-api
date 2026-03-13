@@ -3,12 +3,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { YahooFinanceService } from './yahoo-finance.service';
 import { AngelOneService } from './angel-one.service';
 import { AngelInstrumentService } from './angel-instrument.service';
+import { AngelOneSocketService } from './angel-one-socket.service';
 import { isMarketOpen } from './utils/market-time.util';
 import {
   calculateTechnicalSignals,
   generateSyntheticRationale,
 } from './utils/tech-analysis.util';
-import { NIFTY_50_STOCKS, NIFTY_MIDCAP_100_STOCKS } from '../cron/constants';
+import { TRACKED_STOCKS, NIFTY_50_STOCKS, NIFTY_MIDCAP_100_STOCKS } from '../cron/constants';
 // @ts-ignore
 import Parser = require('rss-parser');
 
@@ -21,6 +22,7 @@ export class StocksService {
     public readonly yahooFinanceService: YahooFinanceService,
     private angelOneService: AngelOneService,
     private angelInstrumentService: AngelInstrumentService,
+    private angelOneSocketService: AngelOneSocketService,
   ) { }
 
 
@@ -778,7 +780,7 @@ export class StocksService {
       'BRITANNIA.NS',
       'INDUSINDBK.NS',
       'CIPLA.NS',
-      'TATAWCF.NS',
+      'TATACONSUM.NS',
       'DIVISLAB.NS',
       'EICHERMOT.NS',
       'BAJAJFINSV.NS',
@@ -1141,37 +1143,21 @@ export class StocksService {
         });
       }
 
-      // 5. Enrich with live quotes for accurate changePercent
-      // The DB changePercent may be null for stocks not actively tracked via WebSocket
-      try {
-        const symbols = dbStocks.map(s => s.symbol);
-        const liveQuotes = await this.getQuotes(symbols);
-        const quoteMap = new Map(liveQuotes.map((q: any) => [q.symbol, q]));
+      // 5. Use Angel websocket cache for live quote fields.
+      return dbStocks.map(stock => {
+        const live = this.angelOneSocketService.getLatestQuote(stock.symbol);
+        const price = (live?.price ?? stock.currentPrice ?? 0) as number;
+        const chgPercent = (live?.changePercent ?? stock.changePercent ?? 0) as number;
+        const changeValue = live?.change ?? ((price) * (chgPercent / 100)) / (1 + (chgPercent / 100));
 
-        return dbStocks.map(stock => {
-          const quote = quoteMap.get(stock.symbol) as any;
-          const price = (quote?.regularMarketPrice || stock.currentPrice || 0) as number;
-          const chgPercent = (quote?.regularMarketChangePercent ?? stock.changePercent ?? 0) as number;
-          const changeValue = ((price) * (chgPercent / 100)) / (1 + (chgPercent / 100));
-          return {
-            ...stock,
-            currentPrice: price,
-            changePercent: chgPercent,
-            change: changeValue,
-          };
-        });
-      } catch (quoteError) {
-        // Fallback to DB data if Yahoo quotes fail
-        this.logger.warn('Live quotes enrichment failed, using DB data:', quoteError?.message);
-        return dbStocks.map(stock => {
-          const chgPercent = stock.changePercent || 0;
-          const changeValue = ((stock.currentPrice || 0) * (chgPercent / 100)) / (1 + (chgPercent / 100));
-          return {
-            ...stock,
-            change: changeValue
-          };
-        });
-      }
+        return {
+          ...stock,
+          currentPrice: price,
+          changePercent: chgPercent,
+          change: changeValue,
+          liveSource: live ? 'angel-websocket' : 'db-snapshot',
+        };
+      });
     } catch (error) {
       console.error('Market summary fetch failed:', error);
       return [];
@@ -1464,8 +1450,146 @@ export class StocksService {
     }
   }
 
+  async getAngelMappingHealth() {
+    const dbSymbols = await this.prisma.stock.findMany({
+      select: { symbol: true },
+    });
+
+    const indexSymbols = [
+      'NIFTY 50',
+      'SENSEX',
+      'NIFTY BANK',
+      '^NSEI',
+      '^BSESN',
+      '^NSEBANK',
+      '^CNXIT',
+      '^CNXPHARMA',
+      '^CNXAUTO',
+      '^CNXFMCG',
+      '^CNXMETAL',
+      '^CNXREALTY',
+      '^CNXENERGY',
+      '^NSEMDCP50',
+    ];
+
+    const symbols = [
+      ...TRACKED_STOCKS,
+      ...indexSymbols,
+      ...dbSymbols.map((s) => s.symbol).filter((s) => {
+        const sym = (s || '').toUpperCase();
+        return sym.endsWith('.NS') || sym.endsWith('.BO') || sym.startsWith('^') || sym === 'NIFTY 50' || sym === 'NIFTY BANK' || sym === 'SENSEX';
+      }),
+    ];
+
+    const health = this.angelInstrumentService.getMappingHealth(symbols);
+
+    return {
+      ...health,
+      samples: {
+        adaniPowerToken: this.angelInstrumentService.getToken('ADANIPOWER.NS'),
+        abbBseToken: this.angelInstrumentService.getToken('ABB.BO'),
+        threeCitBseToken: this.angelInstrumentService.getToken('3CIT.BO'),
+        sensexToken: this.angelInstrumentService.getToken('SENSEX'),
+        nifty50Token: this.angelInstrumentService.getToken('NIFTY 50'),
+      },
+    };
+  }
+
+  async getAngelLiveAudit(details = false, limit = 200) {
+    const dbStocks = await this.prisma.stock.findMany({
+      select: {
+        symbol: true,
+        companyName: true,
+        currentPrice: true,
+        lastUpdated: true,
+      },
+      orderBy: { symbol: 'asc' },
+    });
+
+    const permanentLiveSymbols = new Set([
+      ...TRACKED_STOCKS,
+      'NIFTY 50',
+      'NIFTY BANK',
+      'SENSEX',
+      '^NSEI',
+      '^NSEBANK',
+      '^BSESN',
+      '^CNXIT',
+      '^CNXPHARMA',
+      '^CNXAUTO',
+      '^CNXFMCG',
+      '^CNXMETAL',
+      '^CNXREALTY',
+      '^CNXENERGY',
+      '^NSEMDCP50',
+    ]);
+
+    const now = Date.now();
+    const rows = dbStocks.map((stock) => {
+      const token = this.angelInstrumentService.getToken(stock.symbol);
+      const angelMapped = Boolean(token);
+      const permanentLive = permanentLiveSymbols.has(stock.symbol);
+      const deliveryMode = !angelMapped
+        ? 'not-mapped-to-angel'
+        : permanentLive
+          ? 'angel-websocket-permanent'
+          : 'angel-websocket-on-demand';
+
+      const ageSeconds = stock.lastUpdated
+        ? Math.max(0, Math.round((now - new Date(stock.lastUpdated).getTime()) / 1000))
+        : null;
+
+      return {
+        symbol: stock.symbol,
+        companyName: stock.companyName,
+        angelMapped,
+        angelToken: token,
+        deliveryMode,
+        hasDbPrice: Boolean(stock.currentPrice && stock.currentPrice > 0),
+        dbPriceAgeSeconds: ageSeconds,
+      };
+    });
+
+    const summary = {
+      totalDbStocks: rows.length,
+      angelMapped: rows.filter((r) => r.angelMapped).length,
+      notAngelMapped: rows.filter((r) => !r.angelMapped).length,
+      permanentLiveViaAngelSocket: rows.filter((r) => r.deliveryMode === 'angel-websocket-permanent').length,
+      onDemandLiveCapableViaAngelSocket: rows.filter((r) => r.deliveryMode === 'angel-websocket-on-demand').length,
+      staleOver10Seconds: rows.filter((r) => typeof r.dbPriceAgeSeconds === 'number' && r.dbPriceAgeSeconds > 10).length,
+      architecture: {
+        angelOnlyForEveryStock: false,
+        zeroLatencyForEveryDbStock: false,
+        reasons: [
+          'Only permanently tracked stocks and currently subscribed symbols receive continuous Angel websocket ticks.',
+          'Many read paths still use Yahoo Finance fallback/enrichment for quotes, history, news, and fundamentals.',
+          'API endpoints use DB snapshots and short caches, so they are low-latency but not true zero-latency.',
+        ],
+        currentTuning: {
+          websocketDbThrottleMs: 10000,
+          marketMoversCacheTtlMs: 5000,
+          indicesCacheTtlMs: 5000,
+        },
+      },
+    };
+
+    return {
+      summary,
+      details: details ? rows.slice(0, Math.max(1, limit)) : undefined,
+      unmappedSymbols: rows.filter((r) => !r.angelMapped).map((r) => r.symbol),
+    };
+  }
+
+  // Short cache for movers to avoid hammering quote APIs on frequent UI refresh.
+  private marketMoversCache: { data: any; timestamp: number } | null = null;
+  private readonly MARKET_MOVERS_CACHE_TTL = 500;
+
   async getMarketMovers() {
     try {
+      if (this.marketMoversCache && Date.now() - this.marketMoversCache.timestamp < this.MARKET_MOVERS_CACHE_TTL) {
+        return this.marketMoversCache.data;
+      }
+
       // 1. Query all stocks with a valid price and changePercent from DB
       const allStocks = await this.prisma.stock.findMany({
         where: {
@@ -1482,17 +1606,33 @@ export class StocksService {
         },
       });
 
+      if (allStocks.length === 0) {
+        const empty = { gainers: [], losers: [], active: [] };
+        this.marketMoversCache = { data: empty, timestamp: Date.now() };
+        return empty;
+      }
+
+      const withLive = allStocks.map((stock) => {
+        const live = this.angelOneSocketService.getLatestQuote(stock.symbol);
+        return {
+          ...stock,
+          currentPrice: live?.price ?? stock.currentPrice,
+          changePercent: live?.changePercent ?? stock.changePercent,
+          _live: Boolean(live),
+        };
+      });
+
       // 2. Categorize
-      const gainers = allStocks
+      const gainers = withLive
         .filter(s => (s.changePercent || 0) > 0)
         .slice(0, 5);
 
-      const losers = allStocks
+      const losers = withLive
         .filter(s => (s.changePercent || 0) < 0)
         .reverse() // worst first
         .slice(0, 5);
 
-      const active = [...allStocks]
+      const active = [...withLive]
         .sort((a, b) => Math.abs(b.changePercent || 0) - Math.abs(a.changePercent || 0))
         .slice(0, 5);
 
@@ -1500,39 +1640,13 @@ export class StocksService {
       const allMovers = [...gainers, ...losers, ...active];
       const uniqueSymbols = [...new Set(allMovers.map(s => s.symbol))];
 
-      // 4. Fetch sparkline data (1-week daily close prices) in parallel
+      // 4. Build sparkline data from Angel websocket recent ticks.
       const sparklineMap = new Map<string, number[]>();
-      const sparklinePromises = uniqueSymbols.map(async (symbol) => {
-        try {
-          const lookupSymbol = symbol.endsWith('.NS') || symbol.endsWith('.BO') || symbol.startsWith('^')
-            ? symbol
-            : `${symbol.toUpperCase()}.NS`;
+      for (const symbol of uniqueSymbols) {
+        sparklineMap.set(symbol, this.angelOneSocketService.getRecentPrices(symbol, 7));
+      }
 
-          const now = new Date();
-          const fromDate = new Date();
-          fromDate.setDate(now.getDate() - 10); // 10 days back to ensure ~7 trading days
-
-          const result = await this.yahooFinanceService.resilientCall<any>('chart', 'chart', lookupSymbol, {
-            interval: '1d',
-            period1: Math.floor(fromDate.getTime() / 1000),
-            period2: Math.floor(now.getTime() / 1000),
-          });
-
-          const quotes = result?.quotes || [];
-          const closePrices = quotes
-            .map((q: any) => q.close)
-            .filter((p: any) => p != null && !isNaN(p));
-
-          // Take last 7 data points
-          sparklineMap.set(symbol, closePrices.slice(-7));
-        } catch {
-          sparklineMap.set(symbol, []);
-        }
-      });
-
-      await Promise.all(sparklinePromises);
-
-      // 5. Attach sparkline to each stock
+      // 5. Attach sparkline and live quote values
       const enrich = (stocks: typeof gainers) =>
         stocks.map(s => ({
           symbol: s.symbol,
@@ -1540,13 +1654,17 @@ export class StocksService {
           currentPrice: s.currentPrice,
           changePercent: s.changePercent,
           sparkline: sparklineMap.get(s.symbol) || [],
+          liveSource: s._live ? 'angel-websocket' : 'db-snapshot',
         }));
 
-      return {
+      const response = {
         gainers: enrich(gainers),
         losers: enrich(losers),
         active: enrich(active),
       };
+
+      this.marketMoversCache = { data: response, timestamp: Date.now() };
+      return response;
     } catch (error) {
       this.logger.error('Failed to get market movers', error);
       return { gainers: [], losers: [], active: [] };
@@ -1555,7 +1673,7 @@ export class StocksService {
 
   // In-memory cache for indices (avoids redundant API calls)
   private indicesCache: { data: any[]; timestamp: number } | null = null;
-  private readonly INDICES_CACHE_TTL = 30_000; // 30 seconds
+  private readonly INDICES_CACHE_TTL = 500;
 
   async getIndices() {
     try {
@@ -1565,22 +1683,22 @@ export class StocksService {
       }
 
       const indexSymbols = [
-        { query: 'NIFTY 50', label: 'NIFTY 50', fallbackPrice: 25700 },
-        { query: 'SENSEX', label: 'SENSEX', fallbackPrice: 82800 },
-        { query: 'NIFTY BANK', label: 'NIFTY BANK', fallbackPrice: 53000 },
-        { query: '^CNXIT', label: 'NIFTY IT', fallbackPrice: 37000 },
-        { query: '^CNXPHARMA', label: 'NIFTY PHARMA', fallbackPrice: 18000 },
-        { query: '^CNXAUTO', label: 'NIFTY AUTO', fallbackPrice: 23000 },
-        { query: '^CNXFMCG', label: 'NIFTY FMCG', fallbackPrice: 55000 },
-        { query: '^CNXMETAL', label: 'NIFTY METAL', fallbackPrice: 8500 },
-        { query: '^CNXREALTY', label: 'NIFTY REALTY', fallbackPrice: 900 },
-        { query: '^CNXENERGY', label: 'NIFTY ENERGY', fallbackPrice: 33000 },
-        { query: '^NSEMDCP50', label: 'NIFTY MIDCAP 50', fallbackPrice: 15000 },
+        { query: 'NIFTY 50', altQuery: '^NSEI', label: 'NIFTY 50' },
+        { query: 'SENSEX', altQuery: '^BSESN', label: 'SENSEX' },
+        { query: 'NIFTY BANK', altQuery: '^NSEBANK', label: 'NIFTY BANK' },
+        { query: '^CNXIT', label: 'NIFTY IT' },
+        { query: '^CNXPHARMA', label: 'NIFTY PHARMA' },
+        { query: '^CNXAUTO', label: 'NIFTY AUTO' },
+        { query: '^CNXFMCG', label: 'NIFTY FMCG' },
+        { query: '^CNXMETAL', label: 'NIFTY METAL' },
+        { query: '^CNXREALTY', label: 'NIFTY REALTY' },
+        { query: '^CNXENERGY', label: 'NIFTY ENERGY' },
+        { query: '^NSEMDCP50', label: 'NIFTY MIDCAP 50' },
       ];
 
       // Query the database directly for all defined indices
       // This ensures we rely completely on Angel One WebSocket updates and avoid Yahoo's 0% post-market resets
-      const queries = indexSymbols.map(idx => idx.query);
+      const queries = [...new Set(indexSymbols.flatMap(idx => idx.altQuery ? [idx.query, idx.altQuery] : [idx.query]))];
 
       const dbStocks = await this.prisma.stock.findMany({
         where: { symbol: { in: queries } }
@@ -1589,26 +1707,32 @@ export class StocksService {
       const results: any[] = [];
 
       for (const cfg of indexSymbols) {
-        const dbStock = dbStocks.find(s => s.symbol === cfg.query);
+        const live = this.angelOneSocketService.getLatestQuote(cfg.query)
+          || (cfg.altQuery ? this.angelOneSocketService.getLatestQuote(cfg.altQuery) : null);
 
-        if (dbStock && dbStock.currentPrice) {
-          const price = dbStock.currentPrice;
-          const chp = dbStock.changePercent || 0;
-          const change = (price * (chp / 100)) / (1 + (chp / 100));
+        const dbStock = dbStocks.find(s => s.symbol === cfg.query)
+          || (cfg.altQuery ? dbStocks.find(s => s.symbol === cfg.altQuery) : undefined);
+
+        if ((live && live.price > 0) || (dbStock && dbStock.currentPrice)) {
+          const price = live?.price || dbStock?.currentPrice || 0;
+          const chp = live?.changePercent ?? dbStock?.changePercent ?? 0;
+          const change = live?.change ?? ((price * (chp / 100)) / (1 + (chp / 100)));
 
           results.push({
             symbol: cfg.label,
             price,
             change,
             changePercent: chp,
+            liveSource: live ? 'angel-websocket' : 'db-snapshot',
           });
         } else {
-          // If not in DB yet, use fallback 
+          // Avoid synthetic fallback prices; send explicit unavailable state.
           results.push({
             symbol: cfg.label,
-            price: cfg.fallbackPrice,
+            price: 0,
             change: 0,
             changePercent: 0,
+            liveSource: 'unavailable',
           });
         }
       }

@@ -150,6 +150,19 @@ export class AngelOneService implements OnModuleInit {
         return this.configService.get<string>('ANGEL_API_KEY')?.trim() || null;
     }
 
+    getRuntimeStatus() {
+        return {
+            hasApiKey: Boolean(this.getApiKey()),
+            hasClientId: Boolean(this.getClientId()),
+            hasPin: Boolean(this.configService.get<string>('ANGEL_PIN')?.trim()),
+            hasTotpSecret: Boolean(this.configService.get<string>('ANGEL_TOTP_SECRET')?.trim()),
+            hasJwtToken: Boolean(this.jwtToken),
+            hasFeedToken: Boolean(this.feedToken),
+            hasRefreshToken: Boolean(this.refreshToken),
+            historicalApiEnabled: Boolean(this.historicalSmartApi),
+        };
+    }
+
     private async saveTokenToDb() {
         try {
             const data = JSON.stringify({
