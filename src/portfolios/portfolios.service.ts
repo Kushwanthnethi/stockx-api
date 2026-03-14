@@ -45,33 +45,50 @@ export class PortfoliosService {
     async getHoldings(userId: string) {
         const portfolio = await this.getOrCreatePortfolio(userId);
 
+        // Auto-recover legacy synced holdings if this user has no row-based holdings yet.
+        await this.recoverLegacyHoldings(portfolio.id, portfolio.encryptedData || undefined);
+
         const holdings = await this.prisma.userPortfolioStock.findMany({
             where: { portfolioId: portfolio.id },
-            include: {
-                stock: {
-                    select: {
-                        symbol: true,
-                        companyName: true,
-                        currentPrice: true,
-                        changePercent: true,
-                        sector: true,
-                        exchange: true,
-                        high52Week: true,
-                        low52Week: true,
-                    },
-                },
-            },
             orderBy: { addedAt: 'desc' },
         });
+
+        const symbols = holdings.map(h => h.stockSymbol);
+        const stockRows = symbols.length > 0
+            ? await this.prisma.stock.findMany({
+                where: { symbol: { in: symbols } },
+                select: {
+                    symbol: true,
+                    companyName: true,
+                    currentPrice: true,
+                    changePercent: true,
+                    sector: true,
+                    exchange: true,
+                    high52Week: true,
+                    low52Week: true,
+                },
+            })
+            : [];
+        const stockBySymbol = new Map(stockRows.map(s => [s.symbol, s]));
 
         // Compute enriched fields
         let totalCurrentValue = 0;
         const enriched = holdings.map((h) => {
-            const cmp = h.stock.currentPrice || h.averageBuyPrice;
+            const stock = stockBySymbol.get(h.stockSymbol) || {
+                symbol: h.stockSymbol,
+                companyName: h.stockSymbol,
+                currentPrice: null,
+                changePercent: 0,
+                sector: 'Unknown',
+                exchange: h.stockSymbol.endsWith('.BO') ? 'BSE' : 'NSE',
+                high52Week: null,
+                low52Week: null,
+            };
+            const cmp = stock.currentPrice || h.averageBuyPrice;
             const investedValue = h.quantity * h.averageBuyPrice;
             const currentValue = h.quantity * cmp;
             totalCurrentValue += currentValue;
-            return { ...h, investedValue, currentValue };
+            return { ...h, stock, investedValue, currentValue };
         });
 
         // Second pass for weightage
@@ -124,9 +141,14 @@ export class PortfoliosService {
     async addHolding(userId: string, dto: AddHoldingDto) {
         const portfolio = await this.getOrCreatePortfolio(userId);
 
+        const resolvedSymbol = await this.resolveExistingStockSymbol(dto.symbol);
+        if (!resolvedSymbol) {
+            throw new NotFoundException(`Stock ${dto.symbol} not found in database`);
+        }
+
         // Verify stock exists
         const stock = await this.prisma.stock.findUnique({
-            where: { symbol: dto.symbol },
+            where: { symbol: resolvedSymbol },
         });
         if (!stock) {
             throw new NotFoundException(`Stock ${dto.symbol} not found in database`);
@@ -134,7 +156,7 @@ export class PortfoliosService {
 
         // Check if already held
         const existing = await this.prisma.userPortfolioStock.findFirst({
-            where: { portfolioId: portfolio.id, stockSymbol: dto.symbol },
+            where: { portfolioId: portfolio.id, stockSymbol: resolvedSymbol },
         });
 
         if (existing) {
@@ -152,7 +174,7 @@ export class PortfoliosService {
         return this.prisma.userPortfolioStock.create({
             data: {
                 portfolioId: portfolio.id,
-                stockSymbol: dto.symbol,
+                stockSymbol: resolvedSymbol,
                 quantity: dto.quantity,
                 averageBuyPrice: dto.averageBuyPrice,
             },
@@ -161,9 +183,10 @@ export class PortfoliosService {
 
     async updateHolding(userId: string, symbol: string, dto: UpdateHoldingDto) {
         const portfolio = await this.getOrCreatePortfolio(userId);
+        const symbolCandidates = this.getSymbolLookupCandidates(symbol);
 
         const holding = await this.prisma.userPortfolioStock.findFirst({
-            where: { portfolioId: portfolio.id, stockSymbol: symbol },
+            where: { portfolioId: portfolio.id, stockSymbol: { in: symbolCandidates } },
         });
         if (!holding) throw new NotFoundException(`Holding ${symbol} not found`);
 
@@ -178,9 +201,10 @@ export class PortfoliosService {
 
     async removeHolding(userId: string, symbol: string) {
         const portfolio = await this.getOrCreatePortfolio(userId);
+        const symbolCandidates = this.getSymbolLookupCandidates(symbol);
 
         const holding = await this.prisma.userPortfolioStock.findFirst({
-            where: { portfolioId: portfolio.id, stockSymbol: symbol },
+            where: { portfolioId: portfolio.id, stockSymbol: { in: symbolCandidates } },
         });
         if (!holding) throw new NotFoundException(`Holding ${symbol} not found`);
 
@@ -423,5 +447,123 @@ Do not output any markdown formatting, only pure JSON.
             this.logger.error("Failed to analyze portfolio", error);
             throw new BadRequestException("AI Analysis failed. Please try again later.");
         }
+    }
+
+    private getSymbolLookupCandidates(rawSymbol: string): string[] {
+        const raw = (rawSymbol || '').toUpperCase().trim();
+        if (!raw) return [];
+
+        const prefixed = raw.replace(/^NSE:/, '').replace(/^BSE:/, '');
+        const noEq = prefixed.replace(/-EQ$/, '');
+        const base = noEq.replace(/\.(NS|BO)$/, '');
+        const candidates = new Set<string>([
+            raw,
+            prefixed,
+            noEq,
+            base,
+            `${base}.NS`,
+            `${base}.BO`,
+        ]);
+
+        if (/^\d{6}$/.test(base)) {
+            candidates.add(`${base}.BO`);
+        }
+
+        return Array.from(candidates).filter(Boolean);
+    }
+
+    private async resolveExistingStockSymbol(rawSymbol: string): Promise<string | null> {
+        const candidates = this.getSymbolLookupCandidates(rawSymbol);
+        if (candidates.length === 0) return null;
+
+        const found = await this.prisma.stock.findFirst({
+            where: { symbol: { in: candidates } },
+            select: { symbol: true },
+        });
+
+        if (found?.symbol) return found.symbol;
+
+        // Prefer NSE suffix when client sends bare symbols and DB is NSE-first.
+        const base = (rawSymbol || '').toUpperCase().trim().replace(/^NSE:/, '').replace(/^BSE:/, '').replace(/-EQ$/, '').replace(/\.(NS|BO)$/, '');
+        const nseSymbol = `${base}.NS`;
+        const nse = await this.prisma.stock.findUnique({ where: { symbol: nseSymbol }, select: { symbol: true } });
+        if (nse?.symbol) return nse.symbol;
+
+        const bseSymbol = `${base}.BO`;
+        const bse = await this.prisma.stock.findUnique({ where: { symbol: bseSymbol }, select: { symbol: true } });
+        return bse?.symbol || null;
+    }
+
+    private parseLegacyHoldings(encryptedData?: string): Array<{ symbol: string; quantity: number; averageBuyPrice: number }> {
+        if (!encryptedData) return [];
+
+        try {
+            const parsed = JSON.parse(encryptedData);
+            const list = Array.isArray(parsed)
+                ? parsed
+                : parsed?.holdings || parsed?.positions || parsed?.data || parsed?.portfolio || [];
+
+            if (!Array.isArray(list)) return [];
+
+            const rows: Array<{ symbol: string; quantity: number; averageBuyPrice: number }> = [];
+            for (const item of list) {
+                const symbol = String(
+                    item?.symbol || item?.stockSymbol || item?.tradingsymbol || item?.tradingSymbol || item?.scrip || ''
+                ).trim();
+                const quantity = Number(item?.quantity ?? item?.qty ?? item?.totalQty ?? 0);
+                const averageBuyPrice = Number(item?.averageBuyPrice ?? item?.avgPrice ?? item?.buyPrice ?? item?.costPrice ?? 0);
+
+                if (!symbol || quantity <= 0 || averageBuyPrice <= 0) continue;
+                rows.push({ symbol, quantity, averageBuyPrice });
+            }
+
+            return rows;
+        } catch {
+            // Legacy encrypted payload may be non-JSON; skip silently.
+            return [];
+        }
+    }
+
+    private async recoverLegacyHoldings(portfolioId: string, encryptedData?: string): Promise<void> {
+        const existingCount = await this.prisma.userPortfolioStock.count({ where: { portfolioId } });
+        if (existingCount > 0) return;
+
+        const legacyRows = this.parseLegacyHoldings(encryptedData);
+        if (legacyRows.length === 0) return;
+
+        const mergedBySymbol = new Map<string, { quantity: number; totalCost: number }>();
+
+        for (const row of legacyRows) {
+            const resolved = await this.resolveExistingStockSymbol(row.symbol);
+            if (!resolved) continue;
+
+            const prev = mergedBySymbol.get(resolved);
+            if (!prev) {
+                mergedBySymbol.set(resolved, {
+                    quantity: row.quantity,
+                    totalCost: row.quantity * row.averageBuyPrice,
+                });
+                continue;
+            }
+
+            prev.quantity += row.quantity;
+            prev.totalCost += row.quantity * row.averageBuyPrice;
+            mergedBySymbol.set(resolved, prev);
+        }
+
+        if (mergedBySymbol.size === 0) return;
+
+        for (const [symbol, aggregate] of mergedBySymbol.entries()) {
+            await this.prisma.userPortfolioStock.create({
+                data: {
+                    portfolioId,
+                    stockSymbol: symbol,
+                    quantity: aggregate.quantity,
+                    averageBuyPrice: aggregate.totalCost / aggregate.quantity,
+                },
+            });
+        }
+
+        this.logger.log(`Recovered ${mergedBySymbol.size} legacy portfolio holdings for portfolio ${portfolioId}`);
     }
 }
