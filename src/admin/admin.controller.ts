@@ -31,6 +31,12 @@ export class AdminController {
     return this.adminService.getUsers(Number(page), Number(limit), search);
   }
 
+  @Get('insights')
+  async getInsights(@Req() req: any) {
+    this.checkAdminRole(req.user);
+    return this.adminService.getInsights();
+  }
+
   private checkAdminRole(user: any) {
     // In JWT strategy, user might just contain basic info.
     // We rely on the validateUser from strategy which returns full user object usually,

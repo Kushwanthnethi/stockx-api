@@ -403,6 +403,8 @@ export class PortfoliosService {
             pnlPercent: `${h.pnlPercent.toFixed(2)}%`,
         }));
 
+        const quantitative = this.calculateQuantitativeHealthScore(portfolioData);
+
         const prompt = `
 You are an expert Chief Investment Officer (CIO) analyzing an Indian Stock Market portfolio.
 Given the following portfolio composition:
@@ -411,8 +413,21 @@ Total Invested: ₹${portfolioData.summary.totalInvested.toFixed(2)}
 Total Current Value: ₹${portfolioData.summary.totalCurrentValue.toFixed(2)}
 Total P&L: ₹${portfolioData.summary.totalPnl.toFixed(2)} (${portfolioData.summary.totalPnlPercent.toFixed(2)}%)
 
+Pre-computed quantitative baseline:
+- Baseline Health Score: ${quantitative.score}
+- Holdings Count: ${quantitative.meta.holdingsCount}
+- Sector Diversity Count: ${quantitative.meta.sectorCount}
+- Largest Position Weight: ${quantitative.meta.maxWeightage.toFixed(2)}%
+- Top 3 Concentration: ${quantitative.meta.top3Weightage.toFixed(2)}%
+
 Holdings:
 ${JSON.stringify(holdingsObj, null, 2)}
+
+Scoring guidance:
+- Use the baseline score as anchor and adjust only if qualitative factors justify it.
+- Keep final healthScore within baseline +/- 15 points.
+- Better diversification and lower concentration should increase score.
+- High concentration, weak sector spread, and sustained negative performance should reduce score.
 
 Provide a strict JSON response analyzing this portfolio.
 The JSON must have the following structure exactly:
@@ -434,19 +449,109 @@ Do not output any markdown formatting, only pure JSON.
             const cleanedText = resultText.replace(/\`\`\`json/g, "").replace(/\`\`\`/g, "").trim();
             const analysisJson = JSON.parse(cleanedText);
 
+            const aiHealthScore = this.normalizeScore(analysisJson?.healthScore, quantitative.score);
+            const blendedHealthScore = Math.round((quantitative.score * 0.65) + (aiHealthScore * 0.35));
+            const normalizedRiskLevel = this.normalizeRiskLevel(analysisJson?.riskLevel, blendedHealthScore);
+            const scoringBreakdown = {
+                baselineScore: quantitative.score,
+                aiScore: aiHealthScore,
+                finalScore: blendedHealthScore,
+                weights: {
+                    quantitative: 0.65,
+                    ai: 0.35,
+                },
+                factors: {
+                    holdingsCount: quantitative.meta.holdingsCount,
+                    sectorCount: quantitative.meta.sectorCount,
+                    maxWeightage: Number(quantitative.meta.maxWeightage.toFixed(2)),
+                    top3Weightage: Number(quantitative.meta.top3Weightage.toFixed(2)),
+                    totalPnlPercent: Number(quantitative.meta.totalPnlPercent.toFixed(2)),
+                },
+            };
+
+            const aiInsights = (analysisJson?.insights && typeof analysisJson.insights === 'object')
+                ? analysisJson.insights
+                : {
+                    summary: 'Portfolio analyzed using quantitative and AI blended scoring.',
+                    strengths: [],
+                    weaknesses: [],
+                    recommendation: 'Improve diversification and reduce concentration risk to increase score.',
+                };
+
             // Save to DB
             return this.prisma.userPortfolioAnalysis.create({
                 data: {
                     portfolioId: portfolioData.portfolioId,
-                    healthScore: analysisJson.healthScore,
-                    riskLevel: analysisJson.riskLevel,
-                    insights: analysisJson.insights,
+                    healthScore: blendedHealthScore,
+                    riskLevel: normalizedRiskLevel,
+                    insights: {
+                        ...aiInsights,
+                        scoringBreakdown,
+                    },
                 }
             });
         } catch (error) {
             this.logger.error("Failed to analyze portfolio", error);
             throw new BadRequestException("AI Analysis failed. Please try again later.");
         }
+    }
+
+    private calculateQuantitativeHealthScore(portfolioData: { holdings: Array<{ weightage: number; stock: { sector: string | null } }>; summary: { totalPnlPercent: number } }) {
+        const holdingsCount = portfolioData.holdings.length;
+        const sortedWeights = portfolioData.holdings
+            .map(h => Number(h.weightage) || 0)
+            .sort((a, b) => b - a);
+        const maxWeightage = sortedWeights[0] || 0;
+        const top3Weightage = sortedWeights.slice(0, 3).reduce((sum, w) => sum + w, 0);
+        const sectorCount = new Set(portfolioData.holdings.map(h => (h.stock.sector || 'Unknown').toUpperCase())).size;
+        const totalPnlPercent = Number(portfolioData.summary.totalPnlPercent) || 0;
+
+        let score = 45;
+
+        // Breadth and diversification
+        score += Math.min(holdingsCount, 12) * 1.5; // up to +18
+        score += Math.min(sectorCount, 8) * 2; // up to +16
+
+        // Concentration penalties / rewards
+        if (maxWeightage <= 25) score += 8;
+        else score -= Math.min((maxWeightage - 25) * 0.8, 20);
+
+        if (top3Weightage <= 60) score += 6;
+        else score -= Math.min((top3Weightage - 60) * 0.6, 15);
+
+        // Performance tilt (moderate impact)
+        score += Math.max(-12, Math.min(12, totalPnlPercent / 2));
+
+        return {
+            score: this.clampScore(score),
+            meta: {
+                holdingsCount,
+                sectorCount,
+                maxWeightage,
+                top3Weightage,
+                totalPnlPercent,
+            }
+        };
+    }
+
+    private clampScore(value: number): number {
+        return Math.max(0, Math.min(100, Math.round(value)));
+    }
+
+    private normalizeScore(value: any, fallback: number): number {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return this.clampScore(fallback);
+        return this.clampScore(num);
+    }
+
+    private normalizeRiskLevel(value: any, score: number): string {
+        const normalized = String(value || '').toUpperCase().trim();
+        if (normalized === 'LOW' || normalized === 'MEDIUM' || normalized === 'CRITICAL') {
+            return normalized;
+        }
+        if (score >= 75) return 'LOW';
+        if (score >= 50) return 'MEDIUM';
+        return 'CRITICAL';
     }
 
     private getSymbolLookupCandidates(rawSymbol: string): string[] {
