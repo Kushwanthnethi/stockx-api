@@ -132,40 +132,38 @@ export class NewsBotService {
             // --------------------------
 
             // 4. Collect Fresh News Items (Deduplicated)
-            const freshItems = [];
-            const checkLimit = 20; // Look at top 20 combined
-            // Simple shuffle or just take top from both? Let's interleave or just take top 
-            // from combined to ensure we get the absolute latest.
-            // Sorting by pubDate is better.
+            // OPTIMIZATION: Fetch all recent bot posts ONCE instead of per-item queries
             allItems.sort((a, b) => {
                 const dateA = a.pubDate ? new Date(a.pubDate).getTime() : 0;
                 const dateB = b.pubDate ? new Date(b.pubDate).getTime() : 0;
                 return dateB - dateA;
             });
 
-            const latestPool = allItems.slice(0, checkLimit);
+            const latestPool = allItems.slice(0, 20);
 
+            // Single batch query replaces ~20 individual findFirst calls
+            const recentBotPosts = await this.prisma.post.findMany({
+                where: {
+                    user: { handle: { in: this.BOT_HANDLES } },
+                    createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+                },
+                select: { content: true },
+            });
+            const recentContents = recentBotPosts.map(p => p.content.toLowerCase());
+
+            const freshItems = [];
             for (const item of latestPool) {
                 if (!item.title || !item.link) continue;
 
-                // Check for duplicate in last 24h across ALL bot users
-                // We want to avoid posting the same news event even if a different bot posts it?
-                // Or just avoid exact title match?
-                // Let's check global duplicates to avoid spam.
-                const duplicate = await this.prisma.post.findFirst({
-                    where: {
-                        // Check if ANY bot has posted this recently to avoid repetition
-                        user: { handle: { in: this.BOT_HANDLES } },
-                        content: { contains: item.title.substring(0, 30) },
-                        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-                    }
-                });
+                // Check for duplicate in-memory instead of per-item DB query
+                const titleSnippet = item.title.substring(0, 30).toLowerCase();
+                const isDuplicate = recentContents.some(c => c.includes(titleSnippet));
 
-                if (!duplicate) {
+                if (!isDuplicate) {
                     freshItems.push(item);
                 }
 
-                if (freshItems.length >= 8) break; // Collect enough candidates for AI to choose from
+                if (freshItems.length >= 8) break;
             }
 
             if (freshItems.length === 0) {

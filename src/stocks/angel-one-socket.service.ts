@@ -10,7 +10,7 @@ import { WebSocketV2 } from 'smartapi-javascript';
 @Injectable()
 export class AngelOneSocketService implements OnModuleInit {
     private readonly logger = new Logger(AngelOneSocketService.name);
-    private readonly dbUpdateThrottleMs = 10_000;
+    private readonly dbUpdateThrottleMs = 60_000; // 60s — prices served from in-memory cache; DB is only for persistence
     private readonly maxRecentPrices = 30;
     private socket: any;
     private isConnected = false;

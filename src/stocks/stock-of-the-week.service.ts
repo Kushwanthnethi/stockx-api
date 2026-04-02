@@ -131,9 +131,20 @@ export class StockOfTheWeekService implements OnModuleInit {
 
   async selectStockOfTheWeek() {
     try {
-      // 1. Fetch Universe (Nifty 50 + Others)
+      // 1. Fetch Universe — OPTIMIZED: query DB directly with filters instead of findAll()
+      //    findAll() fetches ALL stocks which is wasteful; we only need candidates with valid metrics.
       const [allStocks, recentWinners] = await Promise.all([
-        this.stocksService.findAll(),
+        this.prisma.stock.findMany({
+          where: {
+            currentPrice: { not: null, gt: 0 },
+            marketCap: { not: null, gt: 100000000000 },
+            peRatio: { not: null },
+            returnOnEquity: { not: null },
+            high52Week: { not: null },
+            changePercent: { not: null },
+          },
+          orderBy: { marketCap: 'desc' },
+        }),
         this.prisma.stockOfTheWeek.findMany({
           orderBy: { weekStartDate: 'desc' },
           take: 4,
@@ -144,17 +155,9 @@ export class StockOfTheWeekService implements OnModuleInit {
       const winnerSymbols = new Set(recentWinners.map((w) => w.stockSymbol));
       this.logger.log(`Excluding ${winnerSymbols.size} recent winners from candidates.`);
 
-      // Filter for valid data
+      // Filter recent winners (can't push to DB where clause since it's a dynamic set)
       const candidates = allStocks.filter(
-        (s) =>
-          s.currentPrice !== null &&
-          s.marketCap !== null &&
-          s.marketCap > 100000000000 && // Filter: Market Cap > ₹10,000 Cr (1 Cr = 10^7, 10k Cr = 10^11) 
-          s.peRatio !== null &&
-          s.returnOnEquity !== null &&
-          s.high52Week !== null &&
-          s.changePercent !== null &&
-          !winnerSymbols.has(s.symbol),
+        (s) => !winnerSymbols.has(s.symbol),
       ) as ((typeof allStocks)[0] & {
         currentPrice: number;
         marketCap: number;

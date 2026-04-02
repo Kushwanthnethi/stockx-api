@@ -193,6 +193,9 @@ export class StocksService {
     return result;
   }
 
+  // Track last DB-written prices for throttling
+  private lastDbPriceBySymbol: Map<string, { price: number; time: number }> = new Map();
+
   async getQuotes(symbols: string[]) {
     try {
       this.logger.debug(`Fetching batch quotes for ${symbols.length} symbols...`);
@@ -215,16 +218,24 @@ export class StocksService {
         regularMarketChangePercent: q.regularMarketChangePercent,
       }));
 
-      // Background DB update (don't await for speed)
+      // Background DB update — THROTTLED: only if price changed >0.1% or >5min stale
+      const now = Date.now();
       results.forEach((q: any) => {
-        this.prisma.stock.update({
-          where: { symbol: q.symbol },
-          data: {
-            currentPrice: q.regularMarketPrice,
-            changePercent: q.regularMarketChangePercent,
-            lastUpdated: new Date(),
-          },
-        }).catch(() => { });
+        const last = this.lastDbPriceBySymbol.get(q.symbol);
+        const priceDiff = last ? Math.abs(q.regularMarketPrice - last.price) / last.price : 1;
+        const timeDiff = last ? now - last.time : Infinity;
+
+        if (priceDiff > 0.001 || timeDiff > 5 * 60 * 1000) {
+          this.lastDbPriceBySymbol.set(q.symbol, { price: q.regularMarketPrice, time: now });
+          this.prisma.stock.update({
+            where: { symbol: q.symbol },
+            data: {
+              currentPrice: q.regularMarketPrice,
+              changePercent: q.regularMarketChangePercent,
+              lastUpdated: new Date(),
+            },
+          }).catch(() => { });
+        }
       });
 
       return results;
@@ -656,9 +667,20 @@ export class StocksService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // OPTIMIZATION: select only the columns we actually use
     const stocks = await this.prisma.stock.findMany({
       where: {
         earningsDate: { not: null }
+      },
+      select: {
+        symbol: true,
+        companyName: true,
+        earningsDate: true,
+        totalRevenue: true,
+        ebitda: true,
+        revenueGrowth: true,
+        isNifty50: true,
+        isMidcap100: true,
       },
       orderBy: { earningsDate: 'asc' },
       take: limit
@@ -670,16 +692,14 @@ export class StocksService {
       companyName: s.companyName,
       date: s.earningsDate,
       formattedDate: s.earningsDate?.toDateString(),
-      // We can create a valid BSE link dynamically
       pdfUrl: `https://www.bseindia.com/corporates/ann.html?scrip=${s.symbol.replace('.NS', '').replace('.BO', '')}&duration=Today`,
       revenue: s.totalRevenue || 0,
       profit: s.ebitda || 0,
       eps: 0,
       revenueGrowth: s.revenueGrowth || 0,
       isNifty50: s.isNifty50,
-      isMidcap100: s.isMidcap100 // Ensure these are selected in findMany
+      isMidcap100: s.isMidcap100
     })).sort((a: any, b: any) => {
-      // Sort closest to Today first
       return Math.abs(new Date(a.date).getTime() - today.getTime()) - Math.abs(new Date(b.date).getTime() - today.getTime());
     });
   }
@@ -1088,19 +1108,9 @@ export class StocksService {
       orderBy: { lastUpdated: 'desc' },
     });
 
-    // Background refresh for stocks with missing price (non-blocking)
-    const staleStocks = stocks.filter(
-      (s) => !s.currentPrice || s.currentPrice === 0,
-    );
-    if (staleStocks.length > 0) {
-      console.log(
-        `Triggering background refresh for ${staleStocks.length} new/stale stocks...`,
-      );
-      // Process in batches of 10 to avoid blasting the API
-      // We don't await this so the UI loads instantly with what we have,
-      // and data pops in on next refresh or via socket if we had one.
-      this.getBatch(staleStocks.slice(0, 50).map((s) => s.symbol));
-    }
+    // REMOVED: Background getBatch() call that caused N+1 explosion.
+    // Each getBatch→findOne triggers Yahoo API + DB upsert per stock.
+    // Stale prices are updated naturally via WebSocket ticks or on-demand findOne().
 
     return stocks;
   }
@@ -1582,7 +1592,7 @@ export class StocksService {
 
   // Short cache for movers to avoid hammering quote APIs on frequent UI refresh.
   private marketMoversCache: { data: any; timestamp: number } | null = null;
-  private readonly MARKET_MOVERS_CACHE_TTL = 500;
+  private readonly MARKET_MOVERS_CACHE_TTL = 5_000; // 5s — prevents rapid UI polling from hammering DB
   private readonly MARKET_MOVERS_SPARKLINE_TTL = 30_000;
   private marketMoverSparklineCache: Map<string, { data: number[]; timestamp: number }> = new Map();
 
@@ -1755,7 +1765,7 @@ export class StocksService {
 
   // In-memory cache for indices (avoids redundant API calls)
   private indicesCache: { data: any[]; timestamp: number } | null = null;
-  private readonly INDICES_CACHE_TTL = 500;
+  private readonly INDICES_CACHE_TTL = 5_000; // 5s — prevents rapid UI polling from hammering DB
 
   async getIndices() {
     try {
@@ -1783,7 +1793,8 @@ export class StocksService {
       const queries = [...new Set(indexSymbols.flatMap(idx => idx.altQuery ? [idx.query, idx.altQuery] : [idx.query]))];
 
       const dbStocks = await this.prisma.stock.findMany({
-        where: { symbol: { in: queries } }
+        where: { symbol: { in: queries } },
+        select: { symbol: true, currentPrice: true, changePercent: true },
       });
 
       const results: any[] = [];
@@ -2028,45 +2039,32 @@ export class StocksService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Check freshness of watched stocks
+    // Check freshness — refresh stale stocks but DON'T re-fetch watchlist
     const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
     const staleStocks = watchlist.filter(
       (w) => w.stock.lastUpdated < fifteenMinutesAgo,
     );
 
     if (staleStocks.length > 0) {
-      // Fire and forget refresh for better UX speed, or await if critical
-      // We'll await for now to ensure user sees fresh data on dashboard load
-      await Promise.all(staleStocks.map((w) => this.findOne(w.stockSymbol)));
+      // Fire-and-forget: refresh in background instead of blocking + re-querying
+      // This eliminates the double-fetch pattern (was: await findOne per stock, then re-query entire watchlist)
+      Promise.all(staleStocks.map((w) => this.findOne(w.stockSymbol))).catch(() => {});
+    }
 
-      // Re-fetch to get updated values
-      const refreshed = await this.prisma.watchlist.findMany({
-        where: { userId },
-        include: { stock: true },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      const withSparkline = await Promise.all(
-        refreshed.map(async (item) => ({
+    // Overlay live prices from Angel WebSocket cache (no DB re-query needed)
+    const withSparkline = await Promise.all(
+      watchlist.map(async (item) => {
+        const live = this.angelOneSocketService.getLatestQuote(item.stock.symbol);
+        return {
           ...item,
           stock: {
             ...item.stock,
+            currentPrice: live?.price ?? item.stock.currentPrice,
+            changePercent: live?.changePercent ?? item.stock.changePercent,
             sparkline: await this.getAccurateMoverSparkline(item.stock.symbol),
           },
-        })),
-      );
-
-      return withSparkline;
-    }
-
-    const withSparkline = await Promise.all(
-      watchlist.map(async (item) => ({
-        ...item,
-        stock: {
-          ...item.stock,
-          sparkline: await this.getAccurateMoverSparkline(item.stock.symbol),
-        },
-      })),
+        };
+      }),
     );
 
     return withSparkline;

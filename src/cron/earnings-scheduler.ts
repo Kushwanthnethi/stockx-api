@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { StocksService } from '../stocks/stocks.service';
 import { TRACKED_STOCKS } from './constants';
 
@@ -10,26 +10,23 @@ export class EarningsScheduler {
 
     constructor(private readonly stocksService: StocksService) { }
 
-    // Run every hour to check for immediate updates (TODAY/TOMORROW)
-    // This is the "Sipping" strategy - frequently check small subset
-    @Cron(CronExpression.EVERY_HOUR)
+    // Run every 4 hours to check for immediate updates (TODAY/TOMORROW)
+    // Earnings dates don't change frequently — 4h is sufficient
+    @Cron('0 */4 * * *')
     async handleHourlyCheck() {
         if (this.isJobRunning) {
-            this.logger.warn('Previous job still running, skipping hourly check.');
+            this.logger.warn('Previous job still running, skipping earnings check.');
             return;
         }
         this.isJobRunning = true;
 
         try {
-            this.logger.log('Starting hourly earnings check...');
+            this.logger.log('Starting earnings check (every 4h)...');
 
-            // 1. Get stocks that might be reporting soon (or reported recently without update)
-            // For simplicity in this PoC, we will check stocks that are already marked as UPCOMING
-            // and have a date close to today.
             const today = new Date();
 
-            // Fetch upcoming from DB to see if we need to verify status
-            const upcoming = await this.stocksService.getEarningsFromDB(200);
+            // Fetch upcoming from DB — reduced from 200 to 50 (we only check 2-day window)
+            const upcoming = await this.stocksService.getEarningsFromDB(50);
 
             const stocksToCheck = upcoming.filter(s => {
                 if (!s.date) return false;
