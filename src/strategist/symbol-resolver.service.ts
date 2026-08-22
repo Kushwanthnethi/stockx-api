@@ -73,6 +73,12 @@ export class SymbolResolverService {
         'ONGC': 'ONGC.NS',
         'COAL INDIA': 'COALINDIA.NS',
         'TATAMOTORS': 'TATAMOTORS.NS',
+        'HDFC LIFE': 'HDFCLIFE.NS',
+        'HDFC AMC': 'HDFCAMC.NS',
+        'TECH MAHINDRA': 'TECHM.NS',
+        'MAHINDRA FINANCE': 'M&MFIN.NS',
+        'TATA CONSULTANCY': 'TCS.NS',
+        'TATA POWER': 'TATAPOWER.NS',
         'INDUSTOWERS': 'INDUSTOWER.NS',
         'INDUSTOWER': 'INDUSTOWER.NS',
         'INDUS TOWERS': 'INDUSTOWER.NS'
@@ -122,8 +128,9 @@ export class SymbolResolverService {
             }
 
             // 2. Exact Nickname Word Match (Highest priority after explicit symbols)
-            for (const [nick, sym] of Object.entries(this.NICKNAMES)) {
-                // Check for whole word match to avoid false positives (e.g., "HAL" in "SHALL")
+            // Sort by length descending to ensure specific aliases match before generic ones
+            const sortedNicknames = Object.entries(this.NICKNAMES).sort((a, b) => b[0].length - a[0].length);
+            for (const [nick, sym] of sortedNicknames) {
                 const nickRegex = new RegExp(`\\b${nick}\\b`, 'i');
                 if (nickRegex.test(upperQuery)) {
                     this.logger.log(`Nickname match: ${nick} -> ${sym}`);
@@ -132,11 +139,19 @@ export class SymbolResolverService {
             }
 
             // 3. AI Extraction for long/conversational queries (Smart Clean)
-            // If the query is long, use AI to isolate the entity first
+            // We use a getter to ensure AI is only called at most once per request lifecycle
+            let aiExtractedValue: string | null = null;
+            const getAiExtraction = async () => {
+                if (aiExtractedValue === null) {
+                    aiExtractedValue = await this.extractEntityWithAI(query);
+                }
+                return aiExtractedValue;
+            };
+
             let cleanSearchTerm = upperQuery;
             if (words.length > 3) {
                 this.logger.log(`Long query detected (${words.length} words). Using AI to extract entity...`);
-                const aiExtracted = await this.extractEntityWithAI(query);
+                const aiExtracted = await getAiExtraction();
                 if (aiExtracted && aiExtracted !== 'NONE') {
                     cleanSearchTerm = aiExtracted;
                     this.logger.log(`AI cleaned query: "${upperQuery}" -> "${cleanSearchTerm}"`);
@@ -163,7 +178,7 @@ export class SymbolResolverService {
             // 5. Final fallback: AI Extraction + Verified Search
             // (Only if we haven't already used AI or if the AI clean failed to find a local match)
             if (words.length <= 3) {
-                const aiExtracted = await this.extractEntityWithAI(query);
+                const aiExtracted = await getAiExtraction();
                 if (aiExtracted && aiExtracted !== 'NONE') {
                     const localMatchAfterAI = this.fuzzySearch(aiExtracted);
                     if (localMatchAfterAI) return localMatchAfterAI.symbol;
@@ -225,9 +240,61 @@ export class SymbolResolverService {
         // Contains name (Space-agnostic)
         if (clean.length > 3) {
             match = this.masterList.find(s => s.companyName.toUpperCase().replace(/\s+/g, '').includes(clean));
+            if (match) return match;
         }
 
-        return match || null;
+        // Levenshtein fallback (only if term is long enough and unambiguous)
+        if (clean.length > 5) {
+            let bestMatch = null;
+            let bestDistance = Infinity;
+            let ambiguous = false;
+
+            for (const s of this.masterList) {
+                const symClean = s.symbol.replace('.NS', '').replace('.BO', '').replace(/\s+/g, '');
+                const nameClean = s.companyName.toUpperCase().replace(/\s+/g, '');
+                
+                const distSym = this.levenshteinDistance(clean, symClean);
+                const distName = this.levenshteinDistance(clean, nameClean);
+                const dist = Math.min(distSym, distName);
+
+                if (dist <= 2) {
+                    if (dist < bestDistance) {
+                        bestDistance = dist;
+                        bestMatch = s;
+                        ambiguous = false;
+                    } else if (dist === bestDistance) {
+                        ambiguous = true;
+                    }
+                }
+            }
+
+            if (bestMatch && !ambiguous) {
+                return bestMatch;
+            }
+        }
+
+        return null;
+    }
+
+    private levenshteinDistance(a: string, b: string): number {
+        if (a.length === 0) return b.length;
+        if (b.length === 0) return a.length;
+        const matrix = [];
+        for (let i = 0; i <= b.length; i++) { matrix[i] = [i]; }
+        for (let j = 0; j <= a.length; j++) { matrix[0][j] = j; }
+        for (let i = 1; i <= b.length; i++) {
+            for (let j = 1; j <= a.length; j++) {
+                if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                    matrix[i][j] = matrix[i - 1][j - 1];
+                } else {
+                    matrix[i][j] = Math.min(
+                        matrix[i - 1][j - 1] + 1, // substitution
+                        Math.min(matrix[i][j - 1] + 1, // insertion
+                        matrix[i - 1][j] + 1)); // deletion
+                }
+            }
+        }
+        return matrix[b.length][a.length];
     }
 
     private async verifiedYahooSearch(name: string, bsePriority: boolean = false): Promise<string | null> {

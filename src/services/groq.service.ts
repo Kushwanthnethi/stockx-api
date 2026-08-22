@@ -7,7 +7,7 @@ import Groq from 'groq-sdk';
 export class GroqService {
     private readonly logger = new Logger(GroqService.name);
     private groq: Groq;
-    private readonly modalName = 'llama-3.1-70b-versatile'; // Or 'llama3-70b-8192' depending on availability
+    private readonly modelName = 'llama-3.1-70b-versatile'; // Or 'llama3-70b-8192' depending on availability
 
     constructor(private configService: ConfigService) {
         const apiKey = this.configService.get<string>('GROQ_API_KEY');
@@ -40,9 +40,9 @@ export class GroqService {
                     content: content,
                 },
             ],
-            model: this.modalName,
+            model: this.modelName,
             temperature: 0.5,
-            max_tokens: 1024,
+            max_tokens: 4096,
             top_p: 1,
             stop: null,
             stream: false,
