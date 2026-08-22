@@ -10,7 +10,12 @@ export class MailService {
 
     constructor(private configService: ConfigService) {
         const resendApiKey = this.configService.get<string>('RESEND_API_KEY');
-        this.resend = new Resend(resendApiKey);
+        if (!resendApiKey) {
+            this.logger.error('RESEND_API_KEY is not defined in environment variables. Email features will fail.');
+            this.resend = new Resend('re_dummy_key');
+        } else {
+            this.resend = new Resend(resendApiKey);
+        }
         this.fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL') || 'noreply@resend.dev';
     }
 

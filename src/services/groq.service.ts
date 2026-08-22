@@ -7,14 +7,16 @@ import Groq from 'groq-sdk';
 export class GroqService {
     private readonly logger = new Logger(GroqService.name);
     private groq: Groq;
-    private readonly modalName = 'llama-3.3-70b-versatile'; // Or 'llama3-70b-8192' depending on availability
+    private readonly modalName = 'llama-3.1-70b-versatile'; // Or 'llama3-70b-8192' depending on availability
 
     constructor(private configService: ConfigService) {
         const apiKey = this.configService.get<string>('GROQ_API_KEY');
         if (!apiKey) {
-            this.logger.error('GROQ_API_KEY is not defined in environment variables');
+            this.logger.error('GROQ_API_KEY is not defined in environment variables. Groq features will fail.');
+            this.groq = new Groq({ apiKey: 'dummy-key' });
+        } else {
+            this.groq = new Groq({ apiKey });
         }
-        this.groq = new Groq({ apiKey });
     }
 
     async generateCompletion(prompt: string): Promise<string> {

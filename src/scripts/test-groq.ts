@@ -22,7 +22,7 @@ async function testGroq() {
                     content: "Explain the importance of dividends in 5 words.",
                 },
             ],
-            model: "llama-3.3-70b-versatile",
+            model: "llama-3.1-70b-versatile",
         });
 
         console.log("Response:");
